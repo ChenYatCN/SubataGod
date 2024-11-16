@@ -1,3 +1,9 @@
 *.pyc
 logs/
 Deimos-Testconfig.ini
+venv
+*.exe
+testbot.txt
+*.spec
+build/
+dist/

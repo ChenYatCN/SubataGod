@@ -350,3 +350,11 @@ msgstr ""
 msgid "Deimos will always be a free tool. If you paid for this, you got scammed!"
 msgstr ""
 
+msgid "Drop Log Settings"
+msgstr ""
+
+msgid "Specify what drops you want to be logged."
+msgstr ""
+
+msgid "Auto Fish"
+msgstr ""

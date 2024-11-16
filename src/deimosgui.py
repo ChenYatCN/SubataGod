@@ -3,9 +3,23 @@ import gettext
 import queue
 import re
 import PySimpleGUI as gui
+import PySimpleGUI as sg
 from src.combat_objects import school_id_to_names
 from src.paths import wizard_city_dance_game_path
 from src.utils import assign_pet_level
+import os
+import ctypes
+
+
+# 确认字体文件路径
+font_path = os.path.abspath('D:\SuabataGodTool\SubataGod-development\DreamHanSans.ttc')
+
+# 注册字体文件到系统
+ctypes.windll.gdi32.AddFontResourceW(font_path)
+
+# 设置字体选项
+sg.set_options(font=('梦源黑体 SC W21', 10))
+
 
 
 class GUICommandType(Enum):
@@ -38,6 +52,8 @@ class GUICommandType(Enum):
 	KillFlythrough = auto()
 
 	ExecuteBot = auto()
+	Match_Drop_CheckBox = auto()
+	Match_Drop_List = auto()
 	KillBot = auto()
 
 	SetPlaystyles = auto()
@@ -61,6 +77,7 @@ class GUIKeys:
 	toggle_sigil = "togglesigil"
 	toggle_questing = "toggle_questing"
 	toggle_auto_pet = "toggleautopet"
+	toggle_auto_fish = "toggleautofish"
 	toggle_freecam = "togglefreecam"
 	toggle_camera_collision = "togglecameracollision"
 
@@ -102,6 +119,8 @@ class GUIKeys:
 	button_kill_bot = "buttonkillbot"
 	button_set_playstyles = "buttonsetplaystyles"
 	button_set_scale = "buttonsetscale"
+	button_drop_setter = "buttondropsetter"
+	button_drop_resetter = "buttondropresetter"
 
 
 class GUICommand:
@@ -141,7 +160,8 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
 		(tl('Dialogue'), GUIKeys.toggle_dialogue),
 		(tl('Sigil'), GUIKeys.toggle_sigil),
 		(tl('Questing'), GUIKeys.toggle_questing),
-		(tl('Auto Pet'), GUIKeys.toggle_auto_pet)
+		(tl('Auto Pet'), GUIKeys.toggle_auto_pet),
+		(tl('Auto Fish'), GUIKeys.toggle_auto_fish)
 	]
 	hotkeys: list[tuple[str, str]] = [
 		(tl('Quest TP'), GUIKeys.hotkey_quest_tp),
@@ -192,6 +212,8 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
 	framed_utils_layout = gui.Frame(tl('Utils'), utils_layout, title_color=gui_text_color)
 
 	dev_utils_notice = tl('The utils below are for advanced users and no support will be given on them.')
+	
+	dev_match_drop_notice = tl('Specify what drops you want to be logged.')
 
 	custom_tp_layout = [
 		[gui.Text(dev_utils_notice, text_color=gui_text_color)],
@@ -345,10 +367,20 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
 			gui.Text(tl('Scale') + ':', text_color=gui_text_color), gui.InputText(size=(8, 1), key='scale'),
 			hotkey_button(tl('Set Scale'), GUIKeys.button_set_scale)
 		],
-		[gui.Text('Select a pet world:', text_color=gui_text_color), gui.Combo(['WizardCity', 'Krokotopia', 'Marleybone', 'Mooshu', 'Dragonspyre'], default_value='WizardCity', readonly=True,text_color=gui_text_color, size=(13, 1), key='PetWorldInput')], #, hotkey_button('Set Auto Pet World', True) 
+		[gui.Text('Select a pet world:', text_color=gui_text_color), gui.Combo(['WizardCity', 'Krokotopia', 'Marleybone', 'Mooshu', 'Dragonspyre'], default_value='WizardCity', readonly=True,text_color=gui_text_color, size=(13, 1), key='PetWorldInput')], #, hotkey_button('Set Auto Pet World', True)
 	]
 
 	framed_misc_utils_layout = gui.Frame(tl('Misc Utils'), misc_utils_layout, title_color=gui_text_color)
+
+	drop_layout = [
+		[gui.Text(dev_match_drop_notice, text_color=gui_text_color)],
+		[gui.Multiline(key='match_drops', size=(66, 6), text_color=gui_text_color, horizontal_scroll=True)],
+		[	gui.Button(tl('Set'), key=GUIKeys.button_drop_setter, button_color=(gui_text_color, gui_button_color)),
+			gui.Button(tl('Reset'), key=GUIKeys.button_drop_resetter, button_color=(gui_text_color, gui_button_color)),
+		],
+	]
+
+	framed_drop_layout = gui.Frame(tl('Drop Log Settings'), drop_layout, title_color=gui_text_color)
 
 	tabs = [
 		[
@@ -359,7 +391,7 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
 			gui.Tab(tl('Flythrough'), [[framed_flythrough_layout]], title_color=gui_text_color),
 			gui.Tab(tl('Bot'), [[framed_bot_creator_layout]], title_color=gui_text_color),
 			gui.Tab(tl('Combat'), [[framed_combat_config_layout]], title_color=gui_text_color),
-			gui.Tab(tl('Misc'), [[framed_misc_utils_layout]], title_color=gui_text_color)
+			gui.Tab(tl('Misc'), [[framed_misc_utils_layout], [framed_drop_layout]], title_color=gui_text_color)
 		]
 	]
 
@@ -411,6 +443,7 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
 
 			# Toggles
 			case GUIKeys.toggle_speedhack | GUIKeys.toggle_combat | GUIKeys.toggle_dialogue | GUIKeys.toggle_sigil | \
+				GUIKeys.toggle_questing | GUIKeys.toggle_auto_pet | GUIKeys.toggle_auto_fish | GUIKeys.toggle_freecam | \
 				GUIKeys.toggle_questing | GUIKeys.toggle_auto_pet | GUIKeys.toggle_freecam | \
 				GUIKeys.toggle_camera_collision: 
 				send_queue.put(GUICommand(GUICommandType.ToggleOption, event))
@@ -510,6 +543,16 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
 
 			case GUIKeys.button_kill_flythrough:
 				send_queue.put(GUICommand(GUICommandType.KillFlythrough))
+
+			case GUIKeys.button_drop_setter:
+				send_queue.put(GUICommand(GUICommandType.Match_Drop_List, inputs['match_drops']))
+				send_queue.put(GUICommand(GUICommandType.Match_Drop_CheckBox, True))
+
+			case GUIKeys.button_drop_resetter:
+				inputs['match_drops'] = ""
+				window['match_drops'].update('')
+				send_queue.put(GUICommand(GUICommandType.Match_Drop_List, inputs['match_drops']))
+				send_queue.put(GUICommand(GUICommandType.Match_Drop_CheckBox, False))
 
 			case GUIKeys.button_run_bot:
 				send_queue.put(GUICommand(GUICommandType.ExecuteBot, inputs['bot_creator']))
