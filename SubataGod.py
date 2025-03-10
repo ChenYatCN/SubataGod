@@ -32,7 +32,7 @@ from src.teleport_math import navmap_tp, calc_Distance
 from src.questing import Quester
 from src.sigil import Sigil
 from src.utils import index_with_str, is_visible_by_path, is_free, auto_potions, auto_potions_force_buy, to_world, collect_wisps_with_limit, try_task_coro, read_webpage, override_wiz_install_using_handle#, assign_pet_level
-from src.paths import advance_dialog_path, decline_quest_path
+from src.paths import advance_dialog_path, decline_quest_path, play_button_path
 import PySimpleGUI as gui
 import pyperclip
 from src.sprinty_client import SprintyClient
@@ -50,7 +50,7 @@ from src.deimoslang import vm
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
 
-tool_version: str = '1.6.1'
+tool_version: str = '1.6.7'
 tool_name: str = 'SubataGod'
 tool_author: str = '我是马猪是魔法装饰师'
 repo_name: str  = tool_name + '-Wizard101'
@@ -204,7 +204,7 @@ def read_config(config_name : str):
 	global fish_id
 	global min_fish_size
 	global max_fish_size
-	is_fish_chest = parser.getboolean('auto fish', 'is_fish_chest', fallback=False)
+	is_fish_chest = parser.getboolean('auto fish', 'is_fish_chest', fallback=True)
 	fish_school = parser.get('auto fish', 'fish_school', fallback='Any')
 	fish_rank = parser.get('auto fish', 'fish_rank', fallback='0')
 	fish_id = parser.get('auto fish', 'fish_id', fallback='0')
@@ -987,8 +987,8 @@ async def main():
 				await asyncio.sleep(1)
 
 				if client in walker.clients and is_fishing:
-					await fish_bot(client, IS_CHEST=is_fish_chest, SCHOOL=fish_school, RANK=fish_rank, ID=fish_id, SIZE_MIN=min_fish_size, SIZE_MAX=max_fish_size)
-
+					#await banish_config(client, IS_CHEST=is_fish_chest, SCHOOL=fish_school, RANK=fish_rank, ID=fish_id, SIZE_MIN=min_fish_size, SIZE_MAX=max_fish_size)
+					await fish_bot(client, IS_CHEST=is_fish_chest)
 		await asyncio.gather(*[async_auto_fish(p) for p in walker.clients])
 
 
@@ -1248,6 +1248,14 @@ async def main():
 
 
 	async def handle_gui():
+		async def handle_coord_error(error: wizwalker.errors.MemoryReadError):
+			if await is_visible_by_path(foreground_client, play_button_path):
+				return
+			if await foreground_client.is_loading():
+				return
+			if await foreground_client.zone_name() is None:
+				return
+			raise wizwalker.errors.MemoryReadError(f"{error} (Occurred in zone: {current_zone})") from error
 		if show_gui:
 			global gui_send_queue
 			global bot_task
@@ -1270,8 +1278,19 @@ async def main():
 			while True:
 				if foreground_client:
 					current_zone = await foreground_client.zone_name()
-					current_pos = await foreground_client.body.position()
-					current_rotation = await foreground_client.body.orientation()
+					try:
+						if parent := await foreground_client.client_object.parent():
+							if await parent.object_name() == "Player Object":
+								children = await parent.children()
+								for pet_object in children:
+									current_pos = await pet_object.location()
+									current_rotation = await pet_object.orientation()
+							else:
+								current_pos = await foreground_client.body.position()
+								current_rotation = await foreground_client.body.orientation()
+					except wizwalker.errors.MemoryReadError as e:
+						await handle_coord_error(e)
+						
 
 					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Title', f'Client: {foreground_client.title}')))
 					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Zone', f'Zone: {current_zone}')))
@@ -1359,6 +1378,12 @@ async def main():
 												entity_name = await entity.object_name()
 												entities_info += f'{entity_name}, XYZ(x={entity_pos.x}, y={entity_pos.y}, z={entity_pos.z})\n'
 											pyperclip.copy(entities_info)
+											
+											if entities_info:
+												logger.success("Available Nearby Entities:")
+												gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.ShowEntityListPopup, (entities_info)))
+											else:
+												logger.error("Failed to load Entity list. Please try again.")
 
 									case GUIKeys.copy_camera_position:
 										if foreground_client:
@@ -1376,11 +1401,11 @@ async def main():
 											pyperclip.copy(f'Orient({camera_pitch}, {camera_roll}, {camera_pitch})')
 
 									case GUIKeys.copy_ui_tree:
-										foreground: Client = foreground_client
 										if foreground_client:
+											foreground: Client = foreground_client
 											ui_tree = ''
 
-											# TODO: Put this function in utils, with a parent function that can return the string properly
+											
 											async def get_ui_tree(window: Window, depth: int = 0, depth_symbol: str = '-', seperator: str = '\n'):
 												nonlocal ui_tree
 												ui_tree += f"{depth_symbol * depth} [{await window.name()}] {await window.maybe_read_type_name()}{seperator}"
@@ -1392,6 +1417,14 @@ async def main():
 
 											logger.debug(f'Copied UI Tree for client {foreground.title}')
 											pyperclip.copy(ui_tree)
+											with open('ui_tree.txt', 'w') as f:
+												f.write(ui_tree)
+
+											if ui_tree:
+												logger.success("Available UI Paths:")
+												gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.ShowUITreePopup, (ui_tree)))
+											else:
+												logger.error("Failed to load UI tree. Please try again.")
 
 									case GUIKeys.copy_stats:
 										if enemy_stats:
@@ -1747,22 +1780,6 @@ async def main():
 	print('欢迎来到"苏神",愿你能在魔法世界找到自己的乐趣o(*￣▽￣*)ブ By.我是马猪我是魔法装饰师')
 	print('\n')
 	logger.debug(f'Welcome to {tool_name} version {tool_version}!')
-
-	async def ban_watcher():
-		known_ban = False
-		try:
-			rkey = winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, r"SOFTWARE\Slackaduts\Deimos", access=winreg.KEY_READ)
-			a = winreg.QueryValueEx(rkey, "badboy")[0]
-			known_ban = a != 0
-		except:
-			pass
-		
-
-		try:
-			rkey = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, r"SOFTWARE\Slackaduts\Deimos", access=winreg.KEY_ALL_ACCESS)
-			winreg.SetValueEx(rkey, "badboy", 0, winreg.REG_DWORD, 1)
-		except:
-			pass		
 		
 
 
@@ -1879,12 +1896,11 @@ async def main():
 		drop_logging_loop_task = asyncio.create_task(drop_logging_loop())
 		zone_check_loop_task = asyncio.create_task(zone_check_loop())
 		anti_afk_questing_loop_task = asyncio.create_task(anti_afk_questing_loop())
-		ban_watcher_task = asyncio.create_task(ban_watcher())
+		
 
 		# while True:
 		# await asyncio.wait([foreground_client_switching_task, speed_switching_task, combat_loop_task, assign_foreground_clients_task, dialogue_loop_task, anti_afk_loop_task, sigil_loop_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task, rpc_loop_task, drop_logging_loop_task, zone_check_loop_task])
 		done, _ = await asyncio.wait([
-			ban_watcher_task,
 			foreground_client_switching_task,
 			assign_foreground_clients_task,
 			anti_afk_loop_task,
@@ -1904,7 +1920,7 @@ async def main():
 				raise exc
 
 	finally:
-		tasks: List[asyncio.Task] = [ban_watcher_task, foreground_client_switching_task, combat_task, assign_foreground_clients_task, dialogue_task, anti_afk_loop_task, sigil_task, questing_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task,drop_logging_loop_task, zone_check_loop_task, anti_afk_questing_loop_task]
+		tasks: List[asyncio.Task] = [ foreground_client_switching_task, combat_task, assign_foreground_clients_task, dialogue_task, anti_afk_loop_task, sigil_task, questing_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task,drop_logging_loop_task, zone_check_loop_task, anti_afk_questing_loop_task]
 		for task in tasks:
 			if task is not None and not task.cancelled():
 				task.cancel()

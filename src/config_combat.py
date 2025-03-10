@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple
 import re
 
 
-default_config = "any<trap & inc_damage>[potent] @ enemy | any<trap & inc_damage & aoe>[potent] | any<blade & out_damage>[sharp] @ self | any<blade & out_damage & aoe>[sharp] | any<global> | any<aura & out_damage> | any<shadow> | any<damage & aoe>[epic] | any<damage>[epic] @ enemy"
+default_config = "any<trap & inc_damage>[potent] @ enemy | any<trap & inc_damage & aoe>[potent] | any<blade & out_damage>[sharp] @ self | any<blade & out_damage & aoe>[sharp] | any<global> | any<aura & out_damage> | any<shadow> | any<damage & aoe>[epic] @ enemy | any<damage & aoe>[colossal] @ enemy | any<damage & aoe>[gargantuan] @ enemy | any<damage & aoe>[monstrous] @ enemy | any<damage & aoe>[giant] @ enemy | any<damage & aoe>[strong] @ enemy | any<damage>[epic] @ enemy | any<damage>[colossal] @ enemy | any<damage>[gargantuan] @ enemy | any<damage>[monstrous] @ enemy | any<damage>[giant] @ enemy | any<damage>[strong] @ enemy"
 
 
 class StrCombatConfigProvider(CombatConfigProvider):

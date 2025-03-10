@@ -7,6 +7,7 @@ from wizwalker.memory.memory_objects.quest_data import QuestData, GoalData
 from wizwalker.extensions.wizsprinter import SprintyClient
 from wizwalker.extensions.wizsprinter.wiz_sprinter import Coroutine, upgrade_clients
 from wizwalker.extensions.wizsprinter.wiz_navigator import toZone
+from src.teleport_math import navmap_tp, calc_Distance
 
 from .tokenizer import *
 from .parser import *
@@ -367,6 +368,10 @@ class VM:
                 return await client.stats.current_mana()
             case EvalKind.max_mana:
                 return await client.stats.max_mana()
+            case EvalKind.energy:
+                return await client.current_energy()
+            case EvalKind.max_energy:
+                return await client.stats.energy_max()
             case EvalKind.bagcount:
                 return (await client.backpack_space())[0]
             case EvalKind.max_bagcount:
@@ -398,7 +403,6 @@ class VM:
                 return await client.stats.potion_charge()
             case EvalKind.max_potioncount:
                 return await client.stats.potion_max()
-
 
     async def exec_deimos_call(self, instruction: Instruction):
         assert instruction.kind == InstructionKind.deimos_call
@@ -433,7 +437,7 @@ class VM:
                             # TODO: "quest" could instead be treated as an XYZ expression or something
                             for client in clients:
                                 pos = await client.quest_position.position()
-                                tg.create_task(client.teleport(pos))
+                                tg.create_task(navmap_tp(client, pos))
                         case TeleportKind.friend_icon:
                             async def proxy(client: SprintyClient): # type: ignore
                                 # probably doesn't need mouseless

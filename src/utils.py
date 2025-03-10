@@ -3,7 +3,8 @@ import ctypes
 import time
 import traceback
 import requests
-
+import re
+import os
 import wizwalker.errors
 from wizwalker import Client, Keycode, XYZ, Primitive, kernel32
 from wizwalker.memory.memory_objects.character_registry import DynamicMemoryObject
@@ -26,13 +27,33 @@ import yaml
 
 import inspect
 import ast
+
 # from src.teleport_math import calc_Distance
 import PySimpleGUI as sg
 
-sg.SetOptions(font=('梦源黑体', 10))
-
+sg.SetOptions(font=('梦源黑体', 12))
 streamportal_locations = ["aeriel", "zanadu", "outer athanor", "inner athanor", "sepidious", "mandalla", "chaos jungle", "reverie", "nimbus", "port aero", "husk"]
 nanavator_locations = ["karamelle city", "sweetzburg", "nibbleheim", "gutenstadt", "black licorice forest", "candy corn farm", "gobblerton"]
+
+def get_ui_tree_text(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return file.read()
+    except FileNotFoundError:
+        return f"UI tree file '{file_path}' not found."
+    except Exception as e:
+        return f"Error reading UI tree file: {str(e)}"
+    
+def get_entity_text(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return file.read()
+    except FileNotFoundError:
+        return f"Entity file '{file_path}' not found."
+    except Exception as e:
+        return f"Error reading entity file: {str(e)}"
+
+
 
 async def get_window_from_path(root_window: Window, name_path: list[str]) -> Window:
     # FULL CREDIT TO SIROLAF FOR THIS FUNCTION
@@ -163,7 +184,8 @@ async def new_portals_cycle( client: Client, location: str):
                 pageCount = pageCount[8:-9]
                 currentPage = pageCount.split('/', 1)[0]
                 maxPage = pageCount.split('/', 1)[1]
-                break            
+                break
+
         spiralGateName = location
 
         isChildFound = False
@@ -359,6 +381,7 @@ async def navigate_to_ravenwood(client: Client):
     await client.send_key(Keycode.HOME, 0.1)
 
     await wait_for_zone_change(client, current_zone=current_zone)
+    await asyncio.sleep(3)
     use_spiral_door = False
     bartleby_navigation = True
     current_zone = await client.zone_name()
@@ -369,6 +392,7 @@ async def navigate_to_ravenwood(client: Client):
             while not await client.is_loading():
                 await client.send_key(Keycode.S, 2)
             await wait_for_zone_change(client, current_zone=current_zone)
+            await asyncio.sleep(3)
             bartleby_navigation = False
 
         # Handling for arcanum apartment
@@ -376,7 +400,7 @@ async def navigate_to_ravenwood(client: Client):
             while not await client.is_loading():
                 await client.send_key(Keycode.S, 1.5)
             await wait_for_zone_change(client, current_zone=current_zone)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(3)
             await client.teleport(XYZ(x=-19.1153507232666, y=-6312.8994140625, z=-2.00579833984375))
             await client.send_key(Keycode.D, 0.1)
             use_spiral_door = True
@@ -390,43 +414,36 @@ async def navigate_to_ravenwood(client: Client):
     if use_spiral_door:
         while not await is_visible_by_path(client, spiral_door_teleport_path):
             await client.send_key(Keycode.X, 0.1)
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(2)
         await spiral_door(client)
 
     # Navigate through bartleby if needed
     if bartleby_navigation:
-        await client.goto(-9.711, -2987.212)
-        await client.send_key(Keycode.W, 3)
-
-        while True:
-            try:
-                await safe_wait_for_zone_change(client, name='WizardCity/WC_Ravenwood_Teleporter', handle_hooks_if_needed=True)
-                break
-            # backup since the above method fails sometimes
-            except LoadingScreenNotFound:
-                await client.teleport(XYZ(x=18.072603225708008, y=-3250.805419921875, z=244.01708984375))
-                await client.send_key(Keycode.W, 3)
+        await asyncio.sleep(1)
+        current_zone = await client.zone_name()
+        await asyncio.sleep(0.25)
+        await client.teleport(XYZ(x=-15.123456001281738, y=-3244.67529296875, z=244.01925659179688))
+        await wait_for_zone_change(client, current_zone=current_zone)
 
 
 async def navigate_to_commons_from_ravenwood(client: Client):
-    # walk to ravenwood exit
-    await client.goto(-19.549846649169922, -297.7527160644531)
-    await client.goto(-5.701, -1536.491)
+    # teleport to ravenwood exit
     current_zone = await client.zone_name()
     await asyncio.sleep(1)
     await client.teleport(XYZ(x=-0.7323388457298279, y=-2200.223388671875, z=-155.97055053710938))
     await wait_for_zone_change(client, current_zone=current_zone)
     await asyncio.sleep(1)
 
+
 async def navigate_to_potions(client: Client):
     hilda = XYZ(-4398.70654296875, 1016.1954345703125, 229.00079345703125)
      # make sure client is not loading
     while await client.is_loading():
-      await asyncio.sleep(0.1)
+        await asyncio.sleep(0.1)
       #Teleports to Hilda if not already in range
     while not await client.is_in_npc_range():
-      await client.teleport(hilda)
-      await asyncio.sleep(2)
+        await client.teleport(hilda)
+        await asyncio.sleep(2)
     # Teleport to hilda brewer
 
 
@@ -457,7 +474,7 @@ async def buy_potions(client: Client, recall: bool = True, original_zone=None):
 
                 current_potion_count = await client.stats.potion_charge()
                 await asyncio.sleep(0.5)
-    
+
     except:
         print(traceback.print_exc())
         raise KeyboardInterrupt
@@ -478,7 +495,6 @@ async def buy_potions(client: Client, recall: bool = True, original_zone=None):
                 # if we timed out, loop and try again
                 except LoadingScreenNotFound:
                     pass
-
 
 
 async def to_world(clients, destinationWorld):
@@ -630,19 +646,23 @@ async def click_window_until_closed(client: Client, path):
     else:
         return False
 
+counter = 0
 
-
-
-async def refill_potions(client: Client, mark: bool = False, recall: bool = True, original_zone=None):
+async def refill_potions(client: Client, mark: bool = True, recall: bool = True, original_zone=None):
+    global counter
     if await client.stats.reference_level() >= 6:
-        # mark if needed
-        if mark:
-            if await client.zone_name() != 'WizardCity/WC_Hub':
-                original_mana = await client.stats.current_mana()
-                while await client.stats.current_mana() >= original_mana:
-                    logger.debug(f'Client {client.title} - Marking Location')
-                    await client.send_key(Keycode.PAGE_DOWN, 0.1)
-                    await asyncio.sleep(.75)
+        if await client.zone_name() != 'WizardCity/WC_Hub':
+            counter += 1
+            direction = Keycode.W if counter % 2 == 1 else Keycode.S
+            logger.debug(f"Client {client.title} - Moving {'forward' if direction == Keycode.W else 'backward'}.")
+            await client.send_key(direction, 0.4)
+            await asyncio.sleep(1.5)
+            original_mana = await client.stats.current_mana()
+
+            while await client.stats.current_mana() >= original_mana:
+                logger.debug(f'Client {client.title} - Marking Location')
+                await client.send_key(Keycode.PAGE_DOWN, 0.1)
+                await asyncio.sleep(1.5)
 
         # Navigate to ravenwood
         await navigate_to_ravenwood(client)
@@ -1364,5 +1384,5 @@ def override_wiz_install_using_handle(max_size = 100):
     handle = kernel32.OpenProcess(0x410, 0, pid) # PROCESS_QUERY_INFORMATION and PROCESS_VM_READ
     ctypes.windll.psapi.GetModuleFileNameExW(handle, None, ctypes.byref(path), max_size)
     kernel32.CloseHandle(handle)
-    install_location = path.value.replace("\Bin\WizardGraphicalClient.exe", "")
+    install_location = path.value.replace("\\Bin\\WizardGraphicalClient.exe", "")
     override_wiz_install_location(install_location)

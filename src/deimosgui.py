@@ -3,22 +3,26 @@ import gettext
 import queue
 import re
 import PySimpleGUI as gui
+import pyperclip
 import PySimpleGUI as sg
 from src.combat_objects import school_id_to_names
 from src.paths import wizard_city_dance_game_path
-from src.utils import assign_pet_level
+from src.utils import assign_pet_level, get_ui_tree_text
 import os
 import ctypes
 
 
 # 确认字体文件路径
-font_path = os.path.abspath('D:\SuabataGodTool\SubataGod-development\DreamHanSans.ttc')
+font_path = os.path.abspath("DreamHanSans.ttc")
 
 # 注册字体文件到系统
 ctypes.windll.gdi32.AddFontResourceW(font_path)
 
 # 设置字体选项
-sg.set_options(font=('梦源黑体 SC W21', 10))
+sg.set_options(font=("梦源黑体 SC W21", 11))
+
+gui.set_global_icon("SubataGod.ico")
+
 
 
 
@@ -65,6 +69,10 @@ class GUICommandType(Enum):
 	# deimos -> window
 	UpdateWindow = auto()
 	UpdateWindowValues = auto()
+	
+	
+	ShowUITreePopup = auto()
+	ShowEntityListPopup = auto()
 
 
 # TODO:
@@ -237,8 +245,8 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
 	dev_utils_layout = [
 		[gui.Text(dev_utils_notice, text_color=gui_text_color)],
 		[
-			hotkey_button(tl('Copy Entity List'), GUIKeys.copy_entity_list, True),
-			hotkey_button(tl('Copy UI Tree'), GUIKeys.copy_ui_tree, True)
+			hotkey_button(tl('Available Entities'), GUIKeys.copy_entity_list, True),
+			hotkey_button(tl('Available Paths'), GUIKeys.copy_ui_tree, True)
 		],
 		[
 			gui.Text(tl('Zone Name') + ':', text_color=gui_text_color), gui.InputText(size=(13, 1), key='ZoneInput'),
@@ -403,8 +411,86 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
 		[client_info_layout]
 	]
 
-	window = gui.Window(title= f'{tool_name} GUI v{tool_version}', layout= layout, keep_on_top=gui_on_top, finalize=True)
+	window = gui.Window(title= f'{tool_name} GUI v{tool_version}', layout= layout, keep_on_top=gui_on_top, finalize=True, icon="SubataGod.ico")
 	return window
+
+def show_ui_tree_popup(ui_tree_content):
+    ui_tree_list = ui_tree_content.splitlines()
+
+    path_dict = {}
+    path_stack = []
+
+    for line in ui_tree_list:
+        indent = len(line) - len(line.lstrip('-'))
+        clean_line = line.lstrip('- ')
+        
+        name_match = re.search(r'\[(.*?)\]', clean_line)
+        if name_match:
+            name = name_match.group(1)
+        else:
+            name = clean_line.split()[0]  # Fallback to the first word if no brackets
+
+        while len(path_stack) > indent:
+            path_stack.pop()
+        
+        current_path = path_stack.copy()
+        current_path.append(name)
+        
+        path_dict[line] = current_path[1:] if len(current_path) > 1 else current_path
+        path_stack.append(name)
+
+    layout = [
+        [gui.Text('Click the path needed to copy it to clipboard.')],
+        [gui.Listbox(values=ui_tree_list, size=(80, 20), key='-TREE-', enable_events=True)],
+        [gui.Input(key='-SEARCH-', enable_events=True)],
+        [gui.Button('Close')]
+    ]
+    UITreeWindow = gui.Window('UI Tree', layout, finalize=True, icon="SubataGod.ico")
+
+    while True:
+        event, values = UITreeWindow.read()
+        if event == gui.WINDOW_CLOSED or event == 'Close':
+            break
+        elif event == '-SEARCH-':
+            search_term = values['-SEARCH-'].lower()
+            filtered_list = [line for line in ui_tree_list if search_term in line.lower()]
+            UITreeWindow['-TREE-'].update(filtered_list)
+        elif event == '-TREE-' and values['-TREE-']:
+            selected_line = values['-TREE-'][0]
+            path = path_dict[selected_line]
+            UITreeWindow.close() 
+            path_str = str(path)
+            pyperclip.copy(path_str)
+            return path_str
+
+    UITreeWindow.close()
+
+def show_entity_list_popup(entity_list_content):
+    entity_list = entity_list_content.splitlines()
+
+    layout = [
+        [gui.Text('Click the entity needed to copy the name and location to clipboard.')],
+        [gui.Listbox(values=entity_list, size=(80, 20), key='-TREE-', enable_events=True)],
+        [gui.Input(key='-SEARCH-', enable_events=True)],
+        [gui.Button('Close')]
+    ]
+    EntityListWindow = gui.Window('Entity List', layout, finalize=True, icon="SubataGod.ico")
+
+    while True:
+        event, values = EntityListWindow.read()
+        if event == gui.WINDOW_CLOSED or event == 'Close':
+            break
+        elif event == '-SEARCH-':
+            search_term = values['-SEARCH-'].lower()
+            filtered_list = [line for line in entity_list if search_term in line.lower()]
+            EntityListWindow['-TREE-'].update(filtered_list)
+        elif event == '-TREE-' and values['-TREE-']:
+            selected_line = values['-TREE-'][0]
+            EntityListWindow.close()
+            pyperclip.copy(selected_line)
+            return selected_line
+
+    EntityListWindow.close()
 
 
 def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, langcode):
@@ -430,6 +516,13 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
 
 					case GUICommandType.UpdateWindowValues:
 						window[com.data[0]].update(values=com.data[1])
+						
+					case GUICommandType.ShowUITreePopup:
+						show_ui_tree_popup(com.data)
+
+					case GUICommandType.ShowEntityListPopup:
+						show_entity_list_popup(com.data)
+						
 		except queue.Empty:
 			pass
 

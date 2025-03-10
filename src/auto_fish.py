@@ -4,22 +4,21 @@ from time import time
 from wizwalker import ClientHandler, Client, Keycode
 from wizwalker.memory import MemoryReader, Window
 from wizwalker.memory.memory_objects.fish import Fish, FishStatusCode
-from wizwalker.extensions.scripting.utils import _maybe_get_named_window
 from loguru import logger
 from typing import Union, List
 
 
 
+
+
+
 # Specifications ####################################
-#IS_CHEST = True                                   #
-#SCHOOL = "Any" # "Any" means you don't care         #
-#RANK = 0  # 0 means you don't care                  #
-#ID = 0 # 0 means you don't care                     #
-#SIZE_MIN = 0 # 0 means you don't care               #
-#SIZE_MAX = 999 # big number means you don't care    #
-#ID = 1374007 # 0 means you don't care
-# SIZE_MIN = 43.6 # 0 means you don't care               #
-# SIZE_MAX = 999 # big number means you don't care    #
+#IS_CHEST = True                                     #
+SCHOOL = "Any" # "Any" means you don't care         #
+RANK = 0  # 0 means you don't care                  #
+ID = 0 # 0 means you don't care                     #
+SIZE_MIN = 0 # 0 means you don't care               #
+SIZE_MAX = 999 # big number means you don't care    #
 #####################################################
 
 
@@ -209,12 +208,11 @@ async def fetch_fish_list(fishing_manager):
         except RuntimeError:
             await asyncio.sleep(0.1)
 
-async def banish_config(fishing_manager, IS_CHEST, SCHOOL, RANK, ID, SIZE_MIN, SIZE_MAX):
+async def banish_config(fishing_manager, IS_CHEST):
     kept_fish = []
     for fish in await fetch_fish_list(fishing_manager):
         fish_temp = await fish.template()
         fish_is_accepted = True
-        fish_size = await fish.size()
         if (await fish.is_chest()) != IS_CHEST:
             fish_is_accepted = False
 
@@ -227,24 +225,20 @@ async def banish_config(fishing_manager, IS_CHEST, SCHOOL, RANK, ID, SIZE_MIN, S
         if (ID != 0) and (await fish.template_id() != ID):
             fish_is_accepted = False
 
-        if fish_size < SIZE_MIN or fish_size > SIZE_MAX:
-            fish_is_accepted = False
-
         if not fish_is_accepted:
             await fish.write_status_code(FishStatusCode.escaped)
         else:
             kept_fish.append(fish)
     return kept_fish
 
-async def refresh_pond(client: Client, fishing_manager, IS_CHEST, SCHOOL, RANK, ID, SIZE_MIN, SIZE_MAX):
-    fish_list = await banish_config(fishing_manager, IS_CHEST, SCHOOL, RANK, ID, SIZE_MIN, SIZE_MAX)
+async def refresh_pond(client, fishing_manager, IS_CHEST):
+    fish_list = await fetch_fish_list(fishing_manager)
     while len(fish_list) == 0:
         fish_windows = await client.root_window.get_windows_with_name("FishingWindow")
         while len(fish_windows) == 0:
             async with client.mouse_handler:
                 await client.mouse_handler.click_window_with_name("OpenFishingButton")
             fish_windows = await client.root_window.get_windows_with_name("FishingWindow")
-            await asyncio.sleep(0.2)
         fish_window: Window = fish_windows[0]
 
         fish_sub_window = await fish_window.get_child_by_name("FishingSubWindow")
@@ -258,15 +252,14 @@ async def refresh_pond(client: Client, fishing_manager, IS_CHEST, SCHOOL, RANK, 
                 if len(await fetch_fish_list(fishing_manager)) > 0:
                     break
             except RuntimeError:
-                await asyncio.sleep(0.1)
+                pass
         await asyncio.sleep(.5)
-        fish_list = await banish_config(fishing_manager)
+        fish_list = await banish_config(fishing_manager, IS_CHEST)
 
-async def fish_bot(client: Client, IS_CHEST: bool, SCHOOL: str, RANK: int, ID: int, SIZE_MIN: int, SIZE_MAX: int):
+async def fish_bot(client: Client, IS_CHEST: bool):
     address_bytes = []
     try:
         logger.debug(f'Preparing.')
-        #await client.mouse_handler.activate_mouseless()
         address_bytes = await patch(client)
         logger.debug(f"Ready for Fish")
 
@@ -275,10 +268,10 @@ async def fish_bot(client: Client, IS_CHEST: bool, SCHOOL: str, RANK: int, ID: i
         total = time()
         while client.is_fishing:
             start = time()
-            # Awaiting the function causes it to close and not awaiting causes an awaiting error but still works. Un-commenting is up to you.
-            # refresh_pond(client, fishing_manager, IS_CHEST, SCHOOL, RANK, ID, SIZE_MIN, SIZE_MAX)
+            await banish_config(fishing_manager, IS_CHEST)
+            await refresh_pond(client, fishing_manager, IS_CHEST)
             fish_list = await fetch_fish_list(fishing_manager)
-
+            
 
             # Press Icon 1 (Lure)
             fish_windows = await client.root_window.get_windows_with_name("FishingWindow")
@@ -294,18 +287,18 @@ async def fish_bot(client: Client, IS_CHEST: bool, SCHOOL: str, RANK: int, ID: i
             icon1 = await bottomframe.get_child_by_name("Icon1")
             async with client.mouse_handler:
                 await client.mouse_handler.click_window(icon1)
-        
-        
+
+            await asyncio.sleep(0.15)
+
+            if await window_exists(client, "MessageBoxModalWindow"):
+                await wait_to_click_window_with_name(client, "rightButton")
+                await sell_basket(client)
+                continue
+            
 
             # Check if fish hooked
             is_hooked = False
-            basket_full = False
             while not is_hooked:
-                if await window_exists(client, "MessageBoxModalWindow"):
-                    await wait_to_click_window_with_name(client, "rightButton")
-                    await sell_basket(client)
-                    continue
-
                 fish_list = await fetch_fish_list(fishing_manager)
                 statuses = await asyncio.gather(*[fish.status_code() for fish in fish_list])
                 for status in statuses:
@@ -313,9 +306,6 @@ async def fish_bot(client: Client, IS_CHEST: bool, SCHOOL: str, RANK: int, ID: i
                         is_hooked = True
                         break
             
-            if basket_full:
-                continue
-
             # Invoke
             await client.send_key(Keycode.SPACEBAR)
 
