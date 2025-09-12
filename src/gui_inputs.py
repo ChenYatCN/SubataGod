@@ -114,3 +114,13 @@ def parse_input(input_str: str, default: float) -> float:
 				pass
 
 	return value
+
+
+# Yoinked shamelessely from https://stackoverflow.com/a/3306087
+def trunc(f, n):
+    if f > 0:
+        return "%.*f" % (n, (f - 0.5*10**-n))
+    elif f == 0:
+        return "%.*f" % (n, f)
+    elif f < 0:
+        return "%.*f" % (n, (f + 0.5*10**-n))

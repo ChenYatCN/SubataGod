@@ -8,7 +8,7 @@ To remap keys, simply replace the key's name with the desired key in the config.
 
 This tool gets updated when I have free time from college, and my personal project(s). Don't pester me for when updates are coming.
 
-You can also close Deimos by closing out the GUI, just never close out the CMD window.
+You can also close Deimos by closing out the GUI
 
 What hotkeys exist:
   -X Press to all clients (X key by default)

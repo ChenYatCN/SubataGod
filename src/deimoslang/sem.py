@@ -176,12 +176,12 @@ class Analyzer:
                 case WhileStmt():
                     _mix_stmt(stmt.body, mixins)
                 case IfStmt():
-                    _mix_stmt(stmt.branch_true)
-                    _mix_stmt(stmt.branch_false)
+                    _mix_stmt(stmt.branch_true, mixins)
+                    _mix_stmt(stmt.branch_false, mixins)
                 case LoopStmt():
-                    _mix_stmt(stmt.body)
+                    _mix_stmt(stmt.body, mixins)
                 case UntilRegion():
-                    _mix_stmt(stmt.body)
+                    _mix_stmt(stmt.body, mixins)
 
         mixed_syms: dict[str, Symbol] = {}
         for m in stmt.mixins:
@@ -197,9 +197,22 @@ class Analyzer:
         _mix_stmt(stmt.body, stmt.mixins)
         stmt.mixins = set()
         return stmt
+    
+    def lookup_constant(self, name: str) -> Expression | None:
+        for stmt in self._stmts:
+            if isinstance(stmt, ConstantDeclStmt) and stmt.name == name:
+                return stmt.value
+                
+        # Not found
+        return None
 
     def sem_stmt(self, stmt: Stmt) -> Stmt:
         match stmt:
+            case TimerStmt():
+                return stmt
+            case ConstantDeclStmt():
+                stmt.value = self.sem_expr(stmt.value)
+                return stmt
             case BlockDefStmt():
                 if not isinstance(stmt.name, IdentExpression):
                     raise SemError(f"Only IdentExpression is allowed during block declaration")
@@ -255,8 +268,14 @@ class Analyzer:
                     stmt.name = SymExpression(sym)
                     return stmt
             case CommandStmt():
-                self.scope._unique_player_selectors.add(stmt.command.player_selector)
-                return stmt
+                if isinstance(stmt.command, ParallelCommandStmt):
+                    for cmd in stmt.command.commands:
+                        self.scope._unique_player_selectors.add(cmd.player_selector)
+                    return stmt
+                else:
+                    # Original code for single commands
+                    self.scope._unique_player_selectors.add(stmt.command.player_selector)
+                    return stmt
             case IfStmt():
                 stmt.expr = self.sem_expr(stmt.expr)
 

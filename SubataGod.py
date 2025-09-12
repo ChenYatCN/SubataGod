@@ -21,6 +21,7 @@ import datetime
 from configparser import ConfigParser
 import statistics
 import re
+# import pypresence
 from pypresence import AioPresence
 from src.command_parser import execute_flythrough, parse_command
 from src.auto_pet import nomnom
@@ -36,24 +37,29 @@ from src.paths import advance_dialog_path, decline_quest_path, play_button_path
 import PySimpleGUI as gui
 import pyperclip
 from src.sprinty_client import SprintyClient
-from src.gui_inputs import param_input
+from src.gui_inputs import param_input, trunc
 from src import discsdk
 from wizwalker.extensions.wizsprinter.wiz_navigator import toZoneDisplayName, toZone
 from wizwalker.extensions.wizsprinter.sprinty_combat import SprintyCombat
 from src.config_combat import StrCombatConfigProvider, delegate_combat_configs, default_config
 from typing import List
+
 from src import deimosgui
 from src.deimosgui import GUIKeys
 from src.tokenizer import tokenize
 from src.deimoslang import vm
 
+gui.set_global_icon("SubataGod_2.ico")
+gui.set_options(suppress_error_popups=True, suppress_raise_key_errors=True, scaling=1.0)
+gui.PySimpleGUI.SUPPRESS_ERROR_POPUPS = True
+gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
+
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
-
-tool_version: str = '1.6.7'
+tool_version: str = '1.8.2'
 tool_name: str = 'SubataGod'
 tool_author: str = '我是马猪是魔法装饰师'
-repo_name: str  = tool_name + '-Wizard101'
+repo_name: str = tool_name + '-Wizard101'
 branch: str = 'master'
 
 type_format_dict = {
@@ -72,6 +78,7 @@ type_format_dict = {
 "float": "<f",
 "double": "<d",
 }
+
 
 def remove_if_exists(file_name : str, sleep_after : float = 0.1):
 	if os.path.exists(file_name):
@@ -98,13 +105,13 @@ def read_config(config_name : str):
 	parser.read(config_name)
 
 	# Settings
-	global auto_updating
+	# global auto_updating
 	global speed_multiplier
 	global use_potions
 	global rpc_status
 	global drop_status
 	global anti_afk_status
-	auto_updating = parser.getboolean('settings', 'auto_updating', fallback=True)
+	# auto_updating = parser.getboolean('settings', 'auto_updating', fallback=True)
 	speed_multiplier = parser.getfloat('settings', 'speed_multiplier', fallback=5.0)
 	use_potions = parser.getboolean('settings', 'use_potions', fallback=True)
 	rpc_status = parser.getboolean('settings', 'rich_presence', fallback=True)
@@ -142,18 +149,26 @@ def read_config(config_name : str):
 
 
 	# GUI Settings
-	global show_gui
+	# global show_gui
 	global gui_on_top
 	global gui_theme
 	global gui_text_color
 	global gui_button_color
 	global gui_langcode
-	show_gui = parser.getboolean('gui', 'show_gui', fallback=True)
+	global gui_scale
+	global gui_font
+	global gui_font_size
+	# show_gui = parser.getboolean('gui', 'show_gui', fallback=True)
 	gui_on_top = parser.getboolean('gui', 'on_top', fallback=True)
 	gui_theme = parser.get('gui', 'theme', fallback='Black')
 	gui_text_color = parser.get('gui', 'text_color', fallback='white')
 	gui_button_color = parser.get('gui', 'button_color', fallback='#4a019e')
 	gui_langcode = parser.get('gui', 'locale', fallback='en')
+	gui_scale = parser.getfloat('gui', 'scale', fallback=1.0)
+	gui_font = parser.get('gui', 'font', fallback='梦源黑体 SC W21')
+	gui_font_size = parser.getint('gui', 'font_size', fallback=16)
+	gui.set_options(scaling=gui_scale, font=(gui_font, gui_font_size))
+	# gui.set_options(scaling=gui_scale, font=('Bahnschrift', gui_font_size))
 
 
 	# Auto Sigil Settings
@@ -223,7 +238,6 @@ while True:
 		folder_path = os.path.join(sys._MEIPASS, 'wizwalker/extensions/wizsprinter/traversalData')
 		break
 
-
 speed_status = False
 combat_status = False
 dialogue_status = False
@@ -255,8 +269,6 @@ pet_task: asyncio.Task = None
 
 bot_task: asyncio.Task = None
 flythrough_task: asyncio.Task = None
-
-
 
 def file_len(filepath) -> List[str]:
 	# return the number of lines in a file
@@ -336,13 +348,13 @@ def is_version_greater(version: str, comparison_version: str) -> bool:
 	return False
 
 
-def auto_update(latest_version: str = get_latest_version()):
-	remove_if_exists(f'{tool_name}-copy.exe')
-	remove_if_exists(f'{tool_name}Updater.exe')
-	time.sleep(0.1)
-	if auto_updating:
-		if is_version_greater(latest_version, tool_version):
-			run_updater()
+#def auto_update(latest_version: str = get_latest_version()):
+#	remove_if_exists(f'{tool_name}-copy.exe')
+#	remove_if_exists(f'{tool_name}Updater.exe')
+#	time.sleep(0.1)
+#	if auto_updating:
+#		if is_version_greater(latest_version, tool_version):
+#			run_updater()
 
 
 def hotkey_button(name: str, auto_size: bool = False, text_color: str = gui_text_color, button_color: str = gui_button_color):
@@ -383,11 +395,13 @@ async def xyz_sync(foreground_client : Client, background_clients : list[Client]
 			logger.debug(f'{sync_locations_key} key pressed, syncing client locations.')
 		if foreground_client:
 			xyz = await foreground_client.body.position()
+			yaw = await foreground_client.body.yaw()
 		else:
 			first_background_client = background_clients[0]
 			xyz = await first_background_client.body.position()
+			yaw = await first_background_client.body.yaw()
 
-		await asyncio.gather(*[p.teleport(xyz) for p in background_clients])
+		await asyncio.gather(*[p.teleport(xyz, yaw=yaw) for p in background_clients])
 		if turn_after:
 			await asyncio.gather(*[p.send_key(key=Keycode.A, seconds=0.1) for p in background_clients])
 			await asyncio.gather(*[p.send_key(key=Keycode.D, seconds=0.1) for p in background_clients])
@@ -454,54 +468,54 @@ async def kill_tool(debug: bool):
 	# raises KeyboardInterrupt, forcing the tool to exit.
 	if debug:
 		logger.debug(f'{kill_tool_key} key pressed, killing {tool_name}.')
-	gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.Close))
 	await asyncio.sleep(0)
 	await asyncio.sleep(0)
-	raise KeyboardInterrupt
+	raise deimosgui.ToolClosedException
+
+
+async def tool_finish():
+	if not walker or len(walker.clients) == 0:
+		return
+	
+	await asyncio.gather(*[p.client_object.write_speed_multiplier(client_speeds[p.process_id]) for p in walker.clients])
+	for p in walker.clients:
+		p.title = 'Wizard101'
+		# Uncomment when freecam is fixed
+		if await p.game_client.is_freecam():
+			await p.camera_elastic()
+		else:
+			camera: ElasticCameraController = await p.game_client.elastic_camera_controller()
+			client_object = await p.body.parent_client_object()
+			await camera.write_attached_client_object(client_object)
+			await camera.write_check_collisions(True)
+			await camera.write_distance_target(300.0)
+			await camera.write_distance(300.0)
+			await camera.write_min_distance(150.0)
+			await camera.write_max_distance(450.0)
+			await camera.write_zoom_resolution(150.0)
+		await p.body.write_scale(1.0)
+	await listener.clear()
+	for p in walker.clients:
+		try:
+			await p.close()
+		except:
+			pass
+	# await walker.close()
+	await asyncio.sleep(0)
+	global tool_status
+	tool_status = False
 
 
 @logger.catch()
 async def main():
 	global tool_status
 	global original_client_locations
+	global listener
 	listener = HotkeyListener()
 	foreground_client: Client = None
 	background_clients = []
 	await asyncio.sleep(0)
 	listener.start()
-
-	async def tool_finish():
-		await asyncio.gather(*[p.client_object.write_speed_multiplier(client_speeds[p.process_id]) for p in walker.clients])
-
-		for p in walker.clients:
-			p.title = 'Wizard101'
-			# Uncomment when freecam is fixed
-			if await p.game_client.is_freecam():
-				await p.camera_elastic()
-
-			else:
-				camera: ElasticCameraController = await p.game_client.elastic_camera_controller()
-				client_object = await p.body.parent_client_object()
-				await camera.write_attached_client_object(client_object)
-				await camera.write_check_collisions(True)
-				await camera.write_distance_target(300.0)
-				await camera.write_distance(300.0)
-				await camera.write_min_distance(150.0)
-				await camera.write_max_distance(450.0)
-				await camera.write_zoom_resolution(150.0)
-
-			await p.body.write_scale(1.0)
-
-		await listener.clear()
-		for p in walker.clients:
-			try:
-				await p.close()
-			except:
-				pass
-		# await walker.close()
-		await asyncio.sleep(0)
-		global tool_status
-		tool_status = False
 
 
 	async def x_press_hotkey():
@@ -547,7 +561,20 @@ async def main():
 
 
 	async def kill_tool_hotkey():
-		await kill_tool(debug=True)
+		# await tool_finish()
+		# try:
+		# 	await kill_tool(debug=True)
+		# except deimosgui.ToolClosedException:
+		# 	pass
+		# finally:
+		# 	gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.Close))
+		# global tool_status
+		# tool_status = False;
+		logger.debug(f"Key {kill_tool_key} pressed, closing {tool_name}.")
+		if walker.clients != 0:
+			gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.CloseFromBackend))
+		# raise deimosgui.ToolClosedException
+
 
 
 	async def toggle_combat_hotkey(debug: bool = True):
@@ -720,6 +747,7 @@ async def main():
 				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Auto PetStatus', 'Enabled')))
 				auto_pet_task = asyncio.create_task(try_task_coro(auto_pet_loop, walker.clients, True))
 
+
 	async def toggle_auto_potion_hotkey():
 		global auto_potion_status
 		
@@ -832,6 +860,7 @@ async def main():
 		if not foreground_client:
 			return walker.clients[0]
 		return foreground_client
+
 	def get_background_clients():
 		return [c for c in walker.clients if not c.is_foreground]
 
@@ -1248,6 +1277,7 @@ async def main():
 
 
 	async def handle_gui():
+
 		async def handle_coord_error(error: wizwalker.errors.MemoryReadError):
 			if await is_visible_by_path(foreground_client, play_button_path):
 				return
@@ -1256,29 +1286,39 @@ async def main():
 			if await foreground_client.zone_name() is None:
 				return
 			raise wizwalker.errors.MemoryReadError(f"{error} (Occurred in zone: {current_zone})") from error
-		if show_gui:
-			global gui_send_queue
-			global bot_task
-			global flythrough_task
-			gui_send_queue = queue.Queue()
-			recv_queue = queue.Queue()
 
-			# swap queue order because sending from window means receiving from here
-			gui_thread = threading.Thread(
-				target=deimosgui.manage_gui,
-				args=(recv_queue, gui_send_queue, gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, gui_langcode)
-			)
-			gui_thread.daemon = True
-			gui_thread.start()
-			
-			drop_logging_loop_task = asyncio.create_task(drop_logging_loop())
-
-			enemy_stats = []
-
-			while True:
-				if foreground_client:
-					current_zone = await foreground_client.zone_name()
-					try:
+		# if show_gui:
+		global gui_send_queue
+		global bot_task
+		global flythrough_task
+		global gui_thread
+		global gui_send_queue
+		global recv_queue
+		gui_send_queue = queue.Queue()
+		recv_queue = queue.Queue()
+		# swap queue order because sending from window means receiving from here
+		gui_thread = threading.Thread(
+			target=deimosgui.manage_gui,
+			args=(recv_queue, gui_send_queue, gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, gui_langcode)
+		)
+		gui_thread.daemon = True
+		gui_thread.start()
+		enemy_stats = []
+		while True:
+			if walker.clients and foreground_client:
+				current_zone = await foreground_client.zone_name()
+				try:
+					if await foreground_client.game_client.is_freecam():
+						camera = await foreground_client.game_client.free_camera_controller()
+						current_pos = await camera.position()
+						current_rotation: Orient = await camera.orientation()
+						current_pos.x = trunc(current_pos.x, 3)
+						current_pos.y = trunc(current_pos.y, 3)
+						current_pos.z = trunc(current_pos.z, 3)
+						current_rotation.yaw = trunc(current_rotation.yaw, 3)
+						current_rotation.pitch = trunc(current_rotation.pitch, 3)
+						current_rotation.roll = trunc(current_rotation.roll, 3)
+					else:
 						if parent := await foreground_client.client_object.parent():
 							if await parent.object_name() == "Player Object":
 								children = await parent.children()
@@ -1286,431 +1326,421 @@ async def main():
 									current_pos = await pet_object.location()
 									current_rotation = await pet_object.orientation()
 							else:
-								current_pos = await foreground_client.body.position()
-								current_rotation = await foreground_client.body.orientation()
-					except wizwalker.errors.MemoryReadError as e:
-						await handle_coord_error(e)
+								current_pos: XYZ = await foreground_client.body.position()
+								current_rotation: Orient = await foreground_client.body.orientation()
+								current_pos.x = trunc(current_pos.x, 3)
+								current_pos.y = trunc(current_pos.y, 3)
+								current_pos.z = trunc(current_pos.z, 3)
+								current_rotation.yaw = trunc(current_rotation.yaw, 3)
+								current_rotation.pitch = trunc(current_rotation.pitch, 3)
+								current_rotation.roll = trunc(current_rotation.roll, 3)
 						
-
-					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Title', f'Client: {foreground_client.title}')))
-					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Zone', f'Zone: {current_zone}')))
-					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('x', f'X: {current_pos.x}')))
-					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('y', f'Y: {current_pos.y}')))
-					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('z', f'Z: {current_pos.z}')))
-					gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Yaw', f'Yaw: {current_rotation.yaw}')))
-
-				# Stuff sent by the window
-				try:
-				# Eat as much as the queue gives us. We will be freed by exception
-					while True:
-						com = recv_queue.get_nowait()
-						match com.com_type:
-							case deimosgui.GUICommandType.Close:
-								await kill_tool_hotkey()
-
-							case deimosgui.GUICommandType.ToggleOption:
-								match com.data:
-									case GUIKeys.toggle_speedhack:
-										await toggle_speed_hotkey()
-
-									case GUIKeys.toggle_combat:
-										await toggle_combat_hotkey()
-
-									case GUIKeys.toggle_dialogue:
-										await toggle_dialogue_hotkey()
-
-									case GUIKeys.toggle_sigil:
-										await toggle_sigil_hotkey()
-
-									case GUIKeys.toggle_questing:
-										await toggle_questing_hotkey()
-
-									case GUIKeys.toggle_auto_pet:
-										await toggle_auto_pet_hotkey()
-
-									case GUIKeys.toggle_auto_potion:
-										await toggle_auto_potion_hotkey()
-
-									case GUIKeys.toggle_auto_fish:
-										await toggle_auto_fish_hotkey()
-
-
-									case GUIKeys.toggle_freecam:
-										await toggle_freecam_hotkey()
-
-									# case 'Side Quests':
-									# 	await toggle_side_quests()
-
-									case GUIKeys.toggle_camera_collision:
-										if foreground_client:
-											camera: ElasticCameraController = await foreground_client.game_client.elastic_camera_controller()
-
-											collision_status = await camera.check_collisions()
-											collision_status ^= True
-
-											logger.debug(f'Camera Collisions {bool_to_string(collision_status)}')
-											await camera.write_check_collisions(collision_status)
-									case _:
-										logger.debug(f'Unknown window toggle: {com.data}')
-
-							case deimosgui.GUICommandType.Copy:
-								match com.data:
-									case GUIKeys.copy_zone:
-										logger.debug('Copied Zone')
-										pyperclip.copy(current_zone)
-
-									case GUIKeys.copy_position:
-										logger.debug('Copied Position')
-										pyperclip.copy(f'XYZ({current_pos.x}, {current_pos.y}, {current_pos.z})')
-
-									case GUIKeys.copy_rotation:
-										logger.debug('Copied Rotation')
-										pyperclip.copy(f'Orient({current_rotation.pitch}, {current_rotation.roll}, {current_rotation.yaw})')
-
-									case GUIKeys.copy_entity_list:
-										if foreground_client:
-											logger.debug('Copied Entity List')
-											sprinter = SprintyClient(foreground_client)
-											entities = await sprinter.get_base_entity_list()
-											entities_info = ''
-											for entity in entities:
-												entity_pos = await entity.location()
-												entity_name = await entity.object_name()
-												entities_info += f'{entity_name}, XYZ(x={entity_pos.x}, y={entity_pos.y}, z={entity_pos.z})\n'
-											pyperclip.copy(entities_info)
-											
-											if entities_info:
-												logger.success("Available Nearby Entities:")
-												gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.ShowEntityListPopup, (entities_info)))
-											else:
-												logger.error("Failed to load Entity list. Please try again.")
-
-									case GUIKeys.copy_camera_position:
-										if foreground_client:
-											camera = await foreground_client.game_client.selected_camera_controller()
-											camera_pos = await camera.position()
-
-											logger.debug('Copied Selected Camera Position')
-											pyperclip.copy(f'XYZ({camera_pos.x}, {camera_pos.y}, {camera_pos.z})')
-
-									case GUIKeys.copy_camera_rotation:
-										if foreground_client:
-											camera = await foreground_client.game_client.selected_camera_controller()
-											camera_pitch, camera_roll, camera_yaw = await camera.orientation()
-											logger.debug('Copied Camera Rotations')
-											pyperclip.copy(f'Orient({camera_pitch}, {camera_roll}, {camera_pitch})')
-
-									case GUIKeys.copy_ui_tree:
-										if foreground_client:
-											foreground: Client = foreground_client
-											ui_tree = ''
-
-											
-											async def get_ui_tree(window: Window, depth: int = 0, depth_symbol: str = '-', seperator: str = '\n'):
-												nonlocal ui_tree
-												ui_tree += f"{depth_symbol * depth} [{await window.name()}] {await window.maybe_read_type_name()}{seperator}"
-
-												for child in await utils.wait_for_non_error(window.children):
-													await get_ui_tree(child, depth + 1)
-
-											await get_ui_tree(foreground.root_window)
-
-											logger.debug(f'Copied UI Tree for client {foreground.title}')
-											pyperclip.copy(ui_tree)
-											with open('ui_tree.txt', 'w') as f:
-												f.write(ui_tree)
-
-											if ui_tree:
-												logger.success("Available UI Paths:")
-												gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.ShowUITreePopup, (ui_tree)))
-											else:
-												logger.error("Failed to load UI tree. Please try again.")
-
-									case GUIKeys.copy_stats:
-										if enemy_stats:
-											logger.debug('Copied Stats')
-											pyperclip.copy('\n'.join(enemy_stats))
+				except wizwalker.errors.MemoryReadError as e:
+					await handle_coord_error(e)
+					
+				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Title', f'Client: {foreground_client.title}')))
+				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Zone', f'Zone: {current_zone}')))
+				# gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('x', f'X: {current_pos.x}')))
+				# gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('y', f'Y: {current_pos.y}')))
+				# gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('z', f'Z: {current_pos.z}')))
+				# gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Yaw', f'Yaw: {current_rotation.yaw}')))
+				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('xyz', f'Position (XYZ): {current_pos.x}, {current_pos.y}, {current_pos.z}')))
+				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('pry', f'Orientation (PRY): {current_rotation.pitch}, {current_rotation.roll}, {current_rotation.yaw}')))
+			elif not walker.clients:
+				await asyncio.sleep(0.1)
+				# continue
+			# Stuff sent by the window
+			try:
+			# Eat as much as the queue gives us. We will be freed by exception
+				while True:
+					com = recv_queue.get_nowait()
+					match com.com_type:
+						case deimosgui.GUICommandType.Close:
+							if len(walker.clients) != 0:
+								raise deimosgui.ToolClosedException
+							os._exit(0) # "Fuck you, you're getting terminated homeboy" - Slack
+						case deimosgui.GUICommandType.AttemptedClose:
+							raise deimosgui.ToolClosedException
+						case deimosgui.GUICommandType.ToggleOption:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							match com.data:
+								case GUIKeys.toggle_speedhack:
+									await toggle_speed_hotkey()
+								case GUIKeys.toggle_combat:
+									await toggle_combat_hotkey()
+								case GUIKeys.toggle_dialogue:
+									await toggle_dialogue_hotkey()
+								case GUIKeys.toggle_sigil:
+									await toggle_sigil_hotkey()
+								case GUIKeys.toggle_questing:
+									await toggle_questing_hotkey()
+								case GUIKeys.toggle_auto_pet:
+									await toggle_auto_pet_hotkey()
+								case GUIKeys.toggle_auto_potion:
+									await toggle_auto_potion_hotkey()
+								case GUIKeys.toggle_auto_fish:
+									await toggle_auto_fish_hotkey()
+								case GUIKeys.toggle_freecam:
+									await toggle_freecam_hotkey()
+								# case 'Side Quests':
+								# 	await toggle_side_quests()
+								case GUIKeys.toggle_camera_collision:
+									if foreground_client:
+										camera: ElasticCameraController = await foreground_client.game_client.elastic_camera_controller()
+										collision_status = await camera.check_collisions()
+										collision_status ^= True
+										logger.debug(f'Camera Collisions {bool_to_string(collision_status)}')
+										await camera.write_check_collisions(collision_status)
+								case GUIKeys.toggle_show_expanded_logs:
+									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateConsole))
+								case _:
+									logger.debug(f'Unknown window toggle: {com.data}')
+						case deimosgui.GUICommandType.Copy:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							match com.data:
+								case GUIKeys.copy_zone:
+									logger.debug('Copied Zone')
+									pyperclip.copy(current_zone)
+								case GUIKeys.copy_position:
+									logger.debug('Copied Position')
+									pyperclip.copy(f'XYZ({current_pos.x}, {current_pos.y}, {current_pos.z})')
+								case GUIKeys.copy_rotation:
+									logger.debug('Copied Rotation')
+									pyperclip.copy(f'Orient({current_rotation.pitch}, {current_rotation.roll}, {current_rotation.yaw})')
+								case GUIKeys.copy_entity_list:
+									if foreground_client:
+										logger.debug('Copied Entity List')
+										sprinter = SprintyClient(foreground_client)
+										entities = await sprinter.get_base_entity_list()
+										entities_info = ''
+										for entity in entities:
+											entity_pos = await entity.location()
+											entity_pos.x = trunc(entity_pos.x, 3)
+											entity_pos.y = trunc(entity_pos.y, 3)
+											entity_pos.z = trunc(entity_pos.z, 3)
+											entity_name = await entity.object_name()
+											entities_info += f'{entity_name}, XYZ({entity_pos.x}, {entity_pos.y}, {entity_pos.z})\n\n'
+										pyperclip.copy(entities_info)
+										if entities_info:
+											logger.success("Available Nearby Entities:")
+											gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.ShowEntityListPopup, (entities_info)))
 										else:
-											logger.info('No stats are loaded. Select an enemy index corresponding to its position on the duel circle, then click the copy button.')
-
-									case _:
-										logger.debug(f'Unknown copy value: {com.data}')
-
-							case deimosgui.GUICommandType.Teleport:
-								match com.data:
-									case GUIKeys.hotkey_quest_tp:
-										await navmap_teleport_hotkey()
-									case GUIKeys.mass_hotkey_mass_tp:
-										await mass_navmap_teleport_hotkey()
-									case GUIKeys.hotkey_freecam_tp:
-										await tp_to_freecam_hotkey()
-									case _:
-										logger.debug(f'Unknown teleport type: {com.data}')
-
-							case deimosgui.GUICommandType.CustomTeleport:
-								if foreground_client:
-									x_input = param_input(com.data['X'], current_pos.x)
-									y_input = param_input(com.data['Y'], current_pos.y)
-									z_input = param_input(com.data['Z'], current_pos.z)
-									yaw_input = param_input(com.data['Yaw'], current_rotation.yaw)
-
-									custom_xyz = XYZ(x=x_input, y=y_input, z=z_input)
-									logger.debug(f'Teleporting client {foreground_client.title} to {custom_xyz}, yaw= {yaw_input}')
-									await foreground_client.teleport(custom_xyz)
-									await foreground_client.body.write_yaw(yaw_input)
-
-							case deimosgui.GUICommandType.EntityTeleport:
-								# Teleports to closest entity with vague name, using WizSprinter
-								if foreground_client:
-									sprinter = SprintyClient(foreground_client)
-									entities = await sprinter.get_base_entities_with_vague_name(com.data)
-									if entities:
-										entity = await sprinter.find_closest_of_entities(entities)
-										entity_pos = await entity.location()
-										await foreground_client.teleport(entity_pos)
-
-							case deimosgui.GUICommandType.SelectEnemy:
-								if foreground_client and await foreground_client.in_battle():
-									caster_index, target_index, base_damage, school_id, crit_status, force_school_status = com.data
-
-									if not base_damage:
-										base_damage = None
-
+											logger.error("Failed to load Entity list. Please try again.")
+								case GUIKeys.copy_camera_position:
+									if foreground_client:
+										camera = await foreground_client.game_client.selected_camera_controller()
+										camera_pos = await camera.position()
+										logger.debug('Copied Selected Camera Position')
+										pyperclip.copy(f'XYZ({camera_pos.x}, {camera_pos.y}, {camera_pos.z})')
+								case GUIKeys.copy_camera_rotation:
+									if foreground_client:
+										camera = await foreground_client.game_client.selected_camera_controller()
+										camera_pitch, camera_roll, camera_yaw = await camera.orientation()
+										logger.debug('Copied Camera Rotations')
+										pyperclip.copy(f'Orient({camera_pitch}, {camera_roll}, {camera_pitch})')
+								case GUIKeys.copy_ui_tree:
+									if foreground_client:
+										foreground: Client = foreground_client
+										ui_tree = ''
+										async def get_ui_tree(window: Window, depth: int = 0, depth_symbol: str = '-', seperator: str = '\n'):
+											nonlocal ui_tree
+											ui_tree += f"{depth_symbol * depth} [{await window.name()}] {await window.maybe_read_type_name()}{seperator}"
+											for child in await utils.wait_for_non_error(window.children):
+												await get_ui_tree(child, depth + 1)
+										await get_ui_tree(foreground.root_window)
+										logger.debug(f'Copied UI Tree for client {foreground.title}')
+										pyperclip.copy(ui_tree)
+										# with open('ui_tree.txt', 'w') as f:
+										# 	f.write(ui_tree)
+										if ui_tree:
+											logger.success("Available UI Paths:")
+											gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.ShowUITreePopup, (ui_tree)))
+										else:
+											logger.error("Failed to load UI tree. Please try again.")
+								case GUIKeys.copy_stats:
+									if enemy_stats:
+										logger.debug('Copied Stats')
+										pyperclip.copy('\n'.join(enemy_stats))
 									else:
-										base_damage = int(base_damage)
-
-									enemy_stats, names_list, caster_i, target_i, school_name = await total_stats(foreground_client, caster_index, target_index, base_damage, school_id, crit_status, force_school_status)
-									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('stat_viewer', '\n'.join(enemy_stats))))
-									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindowValues, ('EnemyInput', names_list)))
-									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindowValues, ('AllyInput', names_list)))
-									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('EnemyInput', names_list[caster_i])))
-									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('AllyInput', names_list[target_i])))
-									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('SchoolInput', school_name)))
-
+										logger.info('No stats are loaded. Select an enemy index corresponding to its position on the duel circle, then click the copy button.')
+								
+								case GUIKeys.copy_logs:
+									gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.CopyConsole, None))
+								case _:
+									logger.debug(f'Unknown copy value: {com.data}')
+						case deimosgui.GUICommandType.Teleport:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							match com.data:
+								case GUIKeys.hotkey_quest_tp:
+									await navmap_teleport_hotkey()
+								case GUIKeys.mass_hotkey_mass_tp:
+									await mass_navmap_teleport_hotkey()
+								case GUIKeys.hotkey_freecam_tp:
+									await tp_to_freecam_hotkey()
+								case _:
+									logger.debug(f'Unknown teleport type: {com.data}')
+						case deimosgui.GUICommandType.CustomTeleport:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								x_input = param_input(com.data['X'], current_pos.x)
+								y_input = param_input(com.data['Y'], current_pos.y)
+								z_input = param_input(com.data['Z'], current_pos.z)
+								yaw_input = param_input(com.data['Yaw'], current_rotation.yaw)
+								custom_xyz = XYZ(x=x_input, y=y_input, z=z_input)
+								logger.debug(f'Teleporting client {foreground_client.title} to {custom_xyz}, yaw= {yaw_input}')
+								await foreground_client.teleport(custom_xyz)
+								await foreground_client.body.write_yaw(yaw_input)
+						case deimosgui.GUICommandType.EntityTeleport:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							# Teleports to closest entity with vague name, using WizSprinter
+							if foreground_client:
+								sprinter = SprintyClient(foreground_client)
+								entities = await sprinter.get_base_entities_with_vague_name(com.data)
+								if entities:
+									entity = await sprinter.find_closest_of_entities(entities)
+									entity_pos = await entity.location()
+									await foreground_client.teleport(entity_pos)
+						case deimosgui.GUICommandType.SelectEnemy:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client and await foreground_client.in_battle():
+								caster_index, target_index, base_damage, school_id, crit_status, force_school_status = com.data
+								if not base_damage:
+									base_damage = None
 								else:
-									logger.info('Last selected client is not currently in combat. You must be in combat to use the stat viewer.')
-
-							case deimosgui.GUICommandType.XYZSync:
-								await xyz_sync_hotkey()
-
-							case deimosgui.GUICommandType.XPress:
-								await x_press_hotkey()
-
-							case deimosgui.GUICommandType.AnchorCam:
-								if foreground_client:
-									if freecam_status:
-										await toggle_freecam_hotkey()
-
-									camera = await foreground_client.game_client.elastic_camera_controller()
-
-									sprinter = SprintyClient(foreground_client)
-									entities = await sprinter.get_base_entities_with_vague_name(com.data)
-									entity_pos: XYZ = None
-									if entities:
-										entity = await sprinter.find_closest_of_entities(entities)
-										entity_name = await entity.object_name()
-										logger.debug(f'Anchoring camera to entity {entity_name}')
-										await camera.write_attached_client_object(entity)
-
-							# case deimosgui.GUICommandType.SetPetWorld:
-							# 	if (com.data[1] is None):
-							# 		logger.debug('Invalid pet world selected!')
-							# 	else:
-							# 		logger.debug(f'Setting Auto Pet World to {com.data[1]}')
-							# 		assign_pet_level(com.data[1])
-
-
-							case deimosgui.GUICommandType.SetCamPosition:
-								if foreground_client:
-									if not freecam_status:
-										await toggle_freecam_hotkey()
-
-									camera: DynamicCameraController = await foreground_client.game_client.selected_camera_controller()
-									camera_pos: XYZ = await camera.position()
-									camera_pitch, camera_roll, camera_yaw = await camera.orientation()
-
-									x_input = param_input(com.data['X'], camera_pos.x)
-									y_input = param_input(com.data['Y'], camera_pos.y)
-									z_input = param_input(com.data['Z'], camera_pos.z)
-									yaw_input = param_input(com.data['Yaw'], camera_yaw)
-									roll_input = param_input(com.data['Roll'], camera_roll)
-									pitch_input = param_input(com.data['Pitch'], camera_pitch)
-
-									input_pos = XYZ(x_input, y_input, z_input)
-									logger.debug(f'Teleporting Camera to {input_pos}, yaw={yaw_input}, roll={roll_input}, pitch={pitch_input}')
-
-									await camera.write_position(input_pos)
-									await camera.update_orientation(Orient(pitch_input, roll_input, yaw_input))
-
-							case deimosgui.GUICommandType.SetCamDistance:
-								if foreground_client:
-									camera = await foreground_client.game_client.elastic_camera_controller()
-									current_zoom = await camera.distance()
-									current_min = await camera.min_distance()
-									current_max = await camera.max_distance()
-									distance_input = param_input(com.data["Distance"], current_zoom)
-									min_input = param_input(com.data["Min"], current_min)
-									max_input = param_input(com.data["Max"], current_max)
-									logger.debug(f'Setting camera distance to {distance_input}, min={min_input}, max={max_input}')
-
-									if com.data["Distance"]:
-										await camera.write_distance_target(distance_input)
-										await camera.write_distance(distance_input)
-									if com.data["Min"]:
-										await camera.write_min_distance(min_input)
-										await camera.write_zoom_resolution(min_input)
-									if com.data["Max"]:
-										await camera.write_max_distance(max_input)
-
-							case deimosgui.GUICommandType.GoToZone:
-								if foreground_client:
-									clients = [foreground_client]
-									if com.data[0]:
-										for c in background_clients:
-											clients.append(c)
-
-									zoneChanged = await toZoneDisplayName(clients, com.data[1])
-
-									if zoneChanged == 0:
-										logger.debug('Reached destination zone: ' + await foreground_client.zone_name())
-									else:
-										logger.error('Failed to go to zone.  It may be spelled incorrectly, or may not be supported.')
-
-							case deimosgui.GUICommandType.GoToWorld:
-								if foreground_client:
-									clients = [foreground_client]
-									if com.data[0]:
-										for c in background_clients:
-											clients.append(c)
-
-									await to_world(clients, com.data[1])
-
-							case deimosgui.GUICommandType.GoToBazaar:
-								if foreground_client:
-									clients = [foreground_client]
-									if com.data:
-										for c in background_clients:
-											clients.append(c)
-									zoneChanged = await toZone(clients, 'WizardCity/WC_Streets/Interiors/WC_OldeTown_AuctionHouse')
-
-									if zoneChanged == 0:
-										logger.debug('Reached destination zone: ' + await foreground_client.zone_name())
-									else:
-										logger.error('Failed to go to zone.  It may be spelled incorrectly, or may not be supported.')
-
-							case deimosgui.GUICommandType.RefillPotions:
-								if foreground_client:
-									clients = [foreground_client]
-									if com.data:
-										for c in background_clients:
-											clients.append(c)
-
-									await asyncio.gather(*[auto_potions_force_buy(client, True) for client in clients])
-
-							case deimosgui.GUICommandType.ExecuteFlythrough:
-								async def _flythrough():
-									await execute_flythrough(foreground_client, com.data)
-									await foreground_client.camera_elastic()
-
-								if foreground_client:
-									flythrough_task = asyncio.create_task(_flythrough())
-
-							case deimosgui.GUICommandType.KillFlythrough:
-								if flythrough_task is not None and not flythrough_task.cancelled():
-									flythrough_task.cancel()
-									flythrough_task = None
-									await asyncio.sleep(0)
-									await foreground_client.camera_elastic()
-
-							case deimosgui.GUICommandType.Match_Drop_List:
-								match_drop_list = com.data
-								if match_drop_list:
-									logger.debug(f'Logging These Drops Only: {match_drop_list}')
+									base_damage = int(base_damage)
+								enemy_stats, names_list, caster_i, target_i, school_name = await total_stats(foreground_client, caster_index, target_index, base_damage, school_id, crit_status, force_school_status)
+								gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('stat_viewer', '\n'.join(enemy_stats))))
+								gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindowValues, ('EnemyInput', names_list)))
+								gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindowValues, ('AllyInput', names_list)))
+								gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('EnemyInput', names_list[caster_i])))
+								gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('AllyInput', names_list[target_i])))
+								gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('SchoolInput', school_name)))
+							else:
+								logger.info('Last selected client is not currently in combat. You must be in combat to use the stat viewer.')
+						case deimosgui.GUICommandType.XYZSync:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							await xyz_sync_hotkey()
+						case deimosgui.GUICommandType.XPress:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							await x_press_hotkey()
+						case deimosgui.GUICommandType.AnchorCam:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								if freecam_status:
+									await toggle_freecam_hotkey()
+								camera = await foreground_client.game_client.elastic_camera_controller()
+								sprinter = SprintyClient(foreground_client)
+								entities = await sprinter.get_base_entities_with_vague_name(com.data)
+								entity_pos: XYZ = None
+								if entities:
+									entity = await sprinter.find_closest_of_entities(entities)
+									entity_name = await entity.object_name()
+									logger.debug(f'Anchoring camera to entity {entity_name}')
+									await camera.write_attached_client_object(entity)
+						# case deimosgui.GUICommandType.SetPetWorld:
+						# 	if (com.data[1] is None):
+						# 		logger.debug('Invalid pet world selected!')
+						# 	else:
+						# 		logger.debug(f'Setting Auto Pet World to {com.data[1]}')
+						# 		assign_pet_level(com.data[1])
+						case deimosgui.GUICommandType.SetCamPosition:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								if not freecam_status:
+									await toggle_freecam_hotkey()
+								camera: DynamicCameraController = await foreground_client.game_client.selected_camera_controller()
+								camera_pos: XYZ = await camera.position()
+								camera_pitch, camera_roll, camera_yaw = await camera.orientation()
+								x_input = param_input(com.data['X'], camera_pos.x)
+								y_input = param_input(com.data['Y'], camera_pos.y)
+								z_input = param_input(com.data['Z'], camera_pos.z)
+								yaw_input = param_input(com.data['Yaw'], camera_yaw)
+								roll_input = param_input(com.data['Roll'], camera_roll)
+								pitch_input = param_input(com.data['Pitch'], camera_pitch)
+								input_pos = XYZ(x_input, y_input, z_input)
+								logger.debug(f'Teleporting Camera to {input_pos}, yaw={yaw_input}, roll={roll_input}, pitch={pitch_input}')
+								await camera.write_position(input_pos)
+								await camera.update_orientation(Orient(pitch_input, roll_input, yaw_input))
+						case deimosgui.GUICommandType.SetCamDistance:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								camera = await foreground_client.game_client.elastic_camera_controller()
+								current_zoom = await camera.distance()
+								current_min = await camera.min_distance()
+								current_max = await camera.max_distance()
+								distance_input = param_input(com.data["Distance"], current_zoom)
+								min_input = param_input(com.data["Min"], current_min)
+								max_input = param_input(com.data["Max"], current_max)
+								logger.debug(f'Setting camera distance to {distance_input}, min={min_input}, max={max_input}')
+								if com.data["Distance"]:
+									await camera.write_distance_target(distance_input)
+									await camera.write_distance(distance_input)
+								if com.data["Min"]:
+									await camera.write_min_distance(min_input)
+									await camera.write_zoom_resolution(min_input)
+								if com.data["Max"]:
+									await camera.write_max_distance(max_input)
+						case deimosgui.GUICommandType.GoToZone:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								clients = [foreground_client]
+								if com.data[0]:
+									for c in background_clients:
+										clients.append(c)
+								zoneChanged = await toZoneDisplayName(clients, com.data[1])
+								if zoneChanged == 0:
+									logger.debug('Reached destination zone: ' + await foreground_client.zone_name())
 								else:
-									logger.debug(f'Logging All Drops.')
-
-							case deimosgui.GUICommandType.Match_Drop_CheckBox:
-								match_drop_check = com.data
-								if match_drop_check == True:
-									drop_logging_loop_task.cancel()
-									await asyncio.sleep(0)
-									drop_logging_loop_task = asyncio.create_task(drop_logging_loop(match_drop_list))
+									logger.error('Failed to go to zone.  It may be spelled incorrectly, or may not be supported.')
+						case deimosgui.GUICommandType.GoToWorld:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								clients = [foreground_client]
+								if com.data[0]:
+									for c in background_clients:
+										clients.append(c)
+								await to_world(clients, com.data[1])
+						case deimosgui.GUICommandType.GoToBazaar:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								clients = [foreground_client]
+								if com.data:
+									for c in background_clients:
+										clients.append(c)
+								zoneChanged = await toZone(clients, 'WizardCity/WC_Streets/Interiors/WC_OldeTown_AuctionHouse')
+								if zoneChanged == 0:
+									logger.debug('Reached destination zone: ' + await foreground_client.zone_name())
 								else:
-									drop_logging_loop_task.cancel()
-									await asyncio.sleep(0)
-									drop_logging_loop_task = asyncio.create_task(drop_logging_loop(match_drop_list))
-
-							case deimosgui.GUICommandType.ExecuteBot:
-								command_data: str = com.data
-
-								expert_mode = command_data.startswith("###deimos_expertmode")
-								async def run_bot():
-									logger.debug('Started Bot')
-									if expert_mode:
-										while True:
-											v = vm.VM(walker.clients)
-											try:
-												v.load_from_text(command_data)
-												v.running = True
-												while v.running:
-													await v.step()
-											except Exception as e:
-												logger.exception(e)
-											v.running = False
-											if v.killed:
-												break
-											await asyncio.sleep(1)
-									else:
-										split_commands = command_data.splitlines()
-										web_commands_strs = ['webpage', 'pull', 'embed']
-										new_commands = []
-
-										for command_str in split_commands:
-											command_tokens = tokenize(command_str)
-											if command_tokens and command_tokens[0].lower in web_commands_strs:
-												web_commands = read_webpage(command_tokens[1])
-												new_commands.extend(web_commands)
-											else:
-												new_commands.append(command_str)
-
-										while True:
-											for command_str in new_commands:
-												await parse_command(walker.clients, command_str)
-											await asyncio.sleep(1)
-
-								if bot_task is not None and not bot_task.cancelled():
-									bot_task.cancel()
-									logger.debug('Bot Killed')
-									bot_task = None
-								bot_task = asyncio.create_task(try_task_coro(run_bot, walker.clients, True))
-
-							case deimosgui.GUICommandType.KillBot:
-								if bot_task is not None and not bot_task.cancelled():
-									bot_task.cancel()
-									logger.debug('Bot Killed')
-									bot_task = None
-
-							case deimosgui.GUICommandType.SetPlaystyles:
-								combat_configs = delegate_combat_configs(str(com.data), len(walker.clients))
-								for i, client in enumerate(walker.clients):
-									client.combat_config = combat_configs.get(i, default_config)
-
-								await toggle_combat_hotkey(False)
-								await toggle_combat_hotkey(False)
-
-
-							case deimosgui.GUICommandType.SetScale:
-								desired_scale = param_input(com.data, 1.0)
-								logger.debug(f'Set Scale to {desired_scale}')
-								await asyncio.gather(*[client.body.write_scale(desired_scale) for client in walker.clients])
-
-				except queue.Empty:
-					pass
-
+									logger.error('Failed to go to zone.  It may be spelled incorrectly, or may not be supported.')
+						case deimosgui.GUICommandType.RefillPotions:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if foreground_client:
+								clients = [foreground_client]
+								if com.data:
+									for c in background_clients:
+										clients.append(c)
+								await asyncio.gather(*[auto_potions_force_buy(client, True) for client in clients])
+						case deimosgui.GUICommandType.ExecuteFlythrough:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							async def _flythrough():
+								await execute_flythrough(foreground_client, com.data)
+								await foreground_client.camera_elastic()
+							if foreground_client:
+								flythrough_task = asyncio.create_task(_flythrough())
+						case deimosgui.GUICommandType.KillFlythrough:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if flythrough_task is not None and not flythrough_task.cancelled():
+								flythrough_task.cancel()
+								flythrough_task = None
+								await asyncio.sleep(0)
+								await foreground_client.camera_elastic()
+						case deimosgui.GUICommandType.ExecuteBot:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							command_data: str = com.data
+							expert_mode = command_data.startswith("###deimos_expertmode")
+							async def run_bot():
+								logger.debug('Started Bot')
+								if expert_mode:
+									while True:
+										v = vm.VM(walker.clients)
+										try:
+											v.load_from_text(command_data)
+											v.running = True
+											while v.running:
+												await v.step()
+										except Exception as e:
+											logger.exception(e)
+										v.running = False
+										if v.killed:
+											break
+										await asyncio.sleep(1)
+								else:
+									split_commands = command_data.splitlines()
+									web_commands_strs = ['webpage', 'pull', 'embed']
+									new_commands = []
+									for command_str in split_commands:
+										command_tokens = tokenize(command_str)
+										if command_tokens and command_tokens[0].lower in web_commands_strs:
+											web_commands = read_webpage(command_tokens[1])
+											new_commands.extend(web_commands)
+										else:
+											new_commands.append(command_str)
+									while True:
+										for command_str in new_commands:
+											await parse_command(walker.clients, command_str)
+										await asyncio.sleep(1)
+							if bot_task is not None and not bot_task.cancelled():
+								bot_task.cancel()
+								logger.debug('Bot Killed')
+								bot_task = None
+							bot_task = asyncio.create_task(try_task_coro(run_bot, walker.clients, True))
+						case deimosgui.GUICommandType.KillBot:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							if bot_task is not None and not bot_task.cancelled():
+								bot_task.cancel()
+								logger.debug('Bot Killed')
+								bot_task = None
+						case deimosgui.GUICommandType.SetPlaystyles:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							combat_configs = delegate_combat_configs(str(com.data), len(walker.clients))
+							for i, client in enumerate(walker.clients):
+								client.combat_config = combat_configs.get(i, default_config)
+							await toggle_combat_hotkey(False)
+							await toggle_combat_hotkey(False)
+						case deimosgui.GUICommandType.SetScale:
+							if not walker.clients:
+								logger.info("This GUI option requires hooks to be active, skipping.")
+								continue
+							desired_scale = param_input(com.data, 1.0)
+							logger.debug(f'Set Scale to {desired_scale}')
+							await asyncio.gather(*[client.body.write_scale(desired_scale) for client in walker.clients])
+			except queue.Empty:
+				pass
+			if walker.clients:
 				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Auto PetStatus', bool_to_string(auto_pet_status))))
 				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Auto FishStatus', bool_to_string(is_fishing))))
-				
-				await asyncio.sleep(0.1)
+			await asyncio.sleep(0.1)
+
 		else:
 			while True:
 				await asyncio.sleep(1)
@@ -1727,16 +1757,139 @@ async def main():
 		await asyncio.gather(*[async_potion(p) for p in walker.clients])
 
 
+	async def rpc_loop():
+		if rpc_status:
+			# Connect to the discord dev app
+			try:
+				rpc = AioPresence(1000159655357587566)
+				await rpc.connect()
+
+			except Exception as e:
+				logger.error(e)
+
+			# except pypresence.exceptions.PyPresenceException:
+			# 	pass
+
+			else:
+				# Assign foreground client locally
+				client: Client = walker.clients[0]
+				zone_name: str = None
+				while True:
+					for c in walker.clients:
+						c: Client
+						if c.is_foreground:
+							client = c
+							break
+
+					# Assign zone name of client
+					await asyncio.sleep(1)
+					zone_name = await client.zone_name()
+
+					if zone_name:
+						zone_list = zone_name.split('/')
+						if len(zone_list):
+							status_str = zone_list[0]
+						else:
+							status_str = zone_name
+
+						# parse zone name and make it more visually appealing
+						if len(zone_list) > 1:
+							if 'Housing_' in zone_name:
+								status_str = status_str.replace('Housing_', '')
+								end_zone_list = zone_list[-1].split('_')
+								end_zone = f' - {end_zone_list[-1]}'
+
+							elif 'Housing' in zone_name:
+								end_zone_list = zone_list[-1].split('_')
+
+								if 'School' in zone_list:
+									status_str = end_zone_list[0] + 'House'
+
+								else:
+									status_str = zone_list[1]
+
+								end_zone = f' - {end_zone_list[-1]}'
+
+							else:
+								end_zone = None
+
+							if not end_zone:
+								area_list: list[str] = zone_list[-1].split('_')
+								del area_list[0]
+
+								for a in area_list.copy():
+									if any([s.isdigit() for s in a]):
+										area_list.remove(a)
+
+								seperator = ' '
+								area = seperator.join(area_list)
+								zone_word_list = re.findall('[A-Z][^A-Z]*', area)
+								if zone_word_list:
+									end_zone = f' - {seperator.join(zone_word_list)}'
+
+								else:
+									end_zone = ''
+
+					else:
+						end_zone = ''
+
+					status_str = status_str.replace('DragonSpire', 'Dragonspyre')
+					status_list = status_str.split('_')
+					if len(status_list[0]) <= 3:
+						del status_list[0]
+
+					seperator = ' '
+					status_str = seperator.join(status_list)
+
+					status_list = re.findall('[A-Z][^A-Z]*', status_str)
+					status_str = seperator.join(status_list)
+
+					if 'ext' in end_zone.lower():
+						end_zone = ' - Outside'
+
+					elif 'int' in end_zone.lower():
+						end_zone = ' - Inside'
+
+					# Read combat members, this check is only needed since WW combat detection breaks upon fleeing
+					# fighter = CombatHandler()
+					# members = await fighter.get_members()
+
+					# Assign current task to show in discord status
+					# if await client.in_battle() and members:
+					if await client.in_battle():
+						task_str = 'Fighting '
+
+					elif questing_status:
+						task_str = 'Questing '
+
+					elif sigil_status:
+						task_str = 'Farming '
+
+					else:
+						task_str = ''
+
+					# Assign if a client is currently selected or not
+					if not any([client.is_foreground for client in walker.clients]):
+						details_pane = 'Idle'
+
+					else:
+						details_pane = 'Active'
+
+					try:
+						# Update the discord RPC status
+						await rpc.update(state=f'{task_str}In {status_str}{end_zone}', details=details_pane)
+
+					except Exception as e:
+						logger.error(e)
 
 
-	async def drop_logging_loop(toSearch=[]):
-		# Run default drop logger
-		await asyncio.gather(*[logging_loop(p, toSearch) for p in walker.clients])
+	async def drop_logging_loop():
+		# Auto potion usage on a per client basis.
+		await asyncio.gather(*[logging_loop(p) for p in walker.clients])
 
 
 	async def zone_check_loop():
 		zone_blacklist = [
-			'WizardCity-TreasureTower-WC_TT',
 			'Raids',
 			'Battlegrounds'
 		]
@@ -1754,6 +1907,7 @@ async def main():
 			'WizardCity/PA_Arena',
 			'WizardCity/GH_Arena',
 			'WizardCity/LM_Arena'
+
 		]
 
 		async def async_zone_check(client: Client):
@@ -1774,13 +1928,14 @@ async def main():
 
 
 	await asyncio.sleep(0)
+	global walker
 	walker = ClientHandler()
 	# walker.clients = []
+	global gui_task
+	gui_task = asyncio.create_task(handle_gui())
+	await asyncio.sleep(2)
+	# logger.debug("1")
 
-	print('欢迎来到"苏神",愿你能在魔法世界找到自己的乐趣o(*￣▽￣*)ブ By.我是马猪我是魔法装饰师')
-	print('\n')
-	logger.debug(f'Welcome to {tool_name} version {tool_version}!')
-		
 
 
 	async def hooking_logic(default_logic : bool = False):
@@ -1828,6 +1983,7 @@ async def main():
 	await hooking_logic()
 	logger.debug('Hooks activated. Setting up hotkeys...')
 	# set initial speed for speed multipler so it knows what to reset to. Instead I should just have this track changes in speed multiplier per-client.
+	global client_speeds
 	client_speeds = {}
 
 	for p in walker.clients:
@@ -1864,7 +2020,6 @@ async def main():
 		p.client_to_follow = client_to_follow
 
 		# Set follower/leader statuses for auto questing/sigil
-
 		if client_to_follow:
 			if client_to_follow in p.title:
 				global sigil_leader_pid
@@ -1875,12 +2030,29 @@ async def main():
 				global questing_leader_pid
 				questing_leader_pid = p.process_id
 
-
 	await listener.add_hotkey(Keycode[kill_tool_key], kill_tool_hotkey, modifiers=ModifierKeys.NOREPEAT)
 	await enable_hotkeys()
 	logger.debug('Hotkeys ready!')
 	tool_status = True
 	exc = None
+
+	async def tool_active():
+		while tool_status:
+			await asyncio.sleep(0.1)
+
+	global foreground_client_switching_task
+	global assign_foreground_clients_task
+	global anti_afk_loop_task
+	global in_combat_loop_task
+	global questing_leader_combat_detection_task
+	global potion_usage_loop_task
+	global rpc_loop_task
+	global drop_logging_loop_task
+	global zone_check_loop_task
+	global anti_afk_questing_loop_task
+	global tool_active_task
+
+
 	try:
 		foreground_client_switching_task = asyncio.create_task(foreground_client_switching())
 		assign_foreground_clients_task = asyncio.create_task(assign_foreground_clients())
@@ -1890,13 +2062,14 @@ async def main():
 		anti_afk_loop_task = asyncio.create_task(anti_afk_loop())
 		# sigil_loop_task = asyncio.create_task(sigil_loop())
 		in_combat_loop_task = asyncio.create_task(is_client_in_combat_loop())
-		gui_task = asyncio.create_task(handle_gui())
+
 		questing_leader_combat_detection_task = asyncio.create_task(entity_detect_combat_loop())
 		potion_usage_loop_task = asyncio.create_task(potion_usage_loop())
+		rpc_loop_task = asyncio.create_task(rpc_loop())
 		drop_logging_loop_task = asyncio.create_task(drop_logging_loop())
 		zone_check_loop_task = asyncio.create_task(zone_check_loop())
 		anti_afk_questing_loop_task = asyncio.create_task(anti_afk_questing_loop())
-		
+		tool_active_task = asyncio.create_task(tool_active())
 
 		# while True:
 		# await asyncio.wait([foreground_client_switching_task, speed_switching_task, combat_loop_task, assign_foreground_clients_task, dialogue_loop_task, anti_afk_loop_task, sigil_loop_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task, rpc_loop_task, drop_logging_loop_task, zone_check_loop_task])
@@ -1908,16 +2081,25 @@ async def main():
 			questing_leader_combat_detection_task,
 			gui_task,
 			potion_usage_loop_task,
+			rpc_loop_task,
 			drop_logging_loop_task,
 			zone_check_loop_task,
-			anti_afk_questing_loop_task
+			anti_afk_questing_loop_task,
+			tool_active_task
 			], return_when=asyncio.FIRST_EXCEPTION)
 
 		for t in done:
-			if t.done() and t.exception() != None:
+			if t.done():
 				exc = t.exception()
-				logger.exception(exc)
-				raise exc
+				match exc:
+					case None:
+						continue
+					case deimosgui.ToolClosedException():
+						logger.info("Tool close triggered by user.")
+						continue
+					case _:
+						logger.exception(exc)
+						pass
 
 	finally:
 		tasks: List[asyncio.Task] = [ foreground_client_switching_task, combat_task, assign_foreground_clients_task, dialogue_task, anti_afk_loop_task, sigil_task, questing_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task,drop_logging_loop_task, zone_check_loop_task, anti_afk_questing_loop_task]
@@ -1936,40 +2118,42 @@ def bool_to_string(input: bool):
 		return 'Disabled'
 
 
-def handle_tool_updating():
-	version = get_latest_version()
-	update_server = None
+#def handle_tool_updating():
+#	version = get_latest_version()
+#	update_server = None
 
-	if update_server is not None and update_server[1].lower() == 'false':
-		raise KeyboardInterrupt
+#	if update_server is not None and update_server[1].lower() == 'false':
+#		raise KeyboardInterrupt
 
-	if update_server is not None:
-		version_specific_data = update_server[2:]
-		version_status_check = ' '.join(version_specific_data)
+#	if update_server is not None:
+#		version_specific_data = update_server[2:]
+#		version_status_check = ' '.join(version_specific_data)
 
-		if tool_version in version_status_check:
-			version_status_index = index_with_str(version_specific_data, tool_version)
-			version_status = version_specific_data[version_status_index].split(' ')[1]
+#		if tool_version in version_status_check:
+#			version_status_index = index_with_str(version_specific_data, tool_version)
+#			version_status = version_specific_data[version_status_index].split(' ')[1]
 
-			if version_status.lower() == 'false':
-				raise KeyboardInterrupt
+#			if version_status.lower() == 'false':
+#				raise KeyboardInterrupt
 
-			elif version_status.lower() == 'force':
-				auto_update()
+#			elif version_status.lower() == 'force':
+#				auto_update()
 
-		if version and auto_updating:
-			if is_version_greater(version, tool_version):
-				auto_update()
+#		if version and auto_updating:
+#			if is_version_greater(version, tool_version):
+#				auto_update()
 
-			if not is_version_greater(tool_version, version):
-				config_update()
+#			if not is_version_greater(tool_version, version):
+#				config_update()
 
 
 if __name__ == "__main__":
 	# Validate configs and update the tool
-	handle_tool_updating()
+	#handle_tool_updating()
 
 	current_log = logger.add(f"logs/{tool_name} - {generate_timestamp()}.log", encoding='utf-8', enqueue=True, backtrace=True)
-
 	asyncio.run(main())
+	# global gui_send_queue
+	# gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.Close))
+	# gui_task.cancel()
 	logger.remove(current_log)

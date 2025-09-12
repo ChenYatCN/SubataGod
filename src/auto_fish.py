@@ -13,7 +13,7 @@ from typing import Union, List
 
 
 # Specifications ####################################
-#IS_CHEST = True                                     #
+#IS_CHEST = True                                    #
 SCHOOL = "Any" # "Any" means you don't care         #
 RANK = 0  # 0 means you don't care                  #
 ID = 0 # 0 means you don't care                     #
@@ -288,7 +288,7 @@ async def fish_bot(client: Client, IS_CHEST: bool):
             async with client.mouse_handler:
                 await client.mouse_handler.click_window(icon1)
 
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.5)
 
             if await window_exists(client, "MessageBoxModalWindow"):
                 await wait_to_click_window_with_name(client, "rightButton")

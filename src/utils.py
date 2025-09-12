@@ -5,6 +5,7 @@ import traceback
 import requests
 import re
 import os
+
 import wizwalker.errors
 from wizwalker import Client, Keycode, XYZ, Primitive, kernel32
 from wizwalker.memory.memory_objects.character_registry import DynamicMemoryObject
@@ -29,9 +30,7 @@ import inspect
 import ast
 
 # from src.teleport_math import calc_Distance
-import PySimpleGUI as sg
 
-sg.SetOptions(font=('梦源黑体', 12))
 streamportal_locations = ["aeriel", "zanadu", "outer athanor", "inner athanor", "sepidious", "mandalla", "chaos jungle", "reverie", "nimbus", "port aero", "husk"]
 nanavator_locations = ["karamelle city", "sweetzburg", "nibbleheim", "gutenstadt", "black licorice forest", "candy corn farm", "gobblerton"]
 
@@ -52,8 +51,6 @@ def get_entity_text(file_path):
         return f"Entity file '{file_path}' not found."
     except Exception as e:
         return f"Error reading entity file: {str(e)}"
-
-
 
 async def get_window_from_path(root_window: Window, name_path: list[str]) -> Window:
     # FULL CREDIT TO SIROLAF FOR THIS FUNCTION
@@ -430,7 +427,7 @@ async def navigate_to_commons_from_ravenwood(client: Client):
     # teleport to ravenwood exit
     current_zone = await client.zone_name()
     await asyncio.sleep(1)
-    await client.teleport(XYZ(x=-0.7323388457298279, y=-2200.223388671875, z=-155.97055053710938))
+    await client.teleport(XYZ(x=26.100, y=-2205.021, z=-156.463))
     await wait_for_zone_change(client, current_zone=current_zone)
     await asyncio.sleep(1)
 
@@ -440,7 +437,7 @@ async def navigate_to_potions(client: Client):
      # make sure client is not loading
     while await client.is_loading():
         await asyncio.sleep(0.1)
-      #Teleports to Hilda if not already in range
+    #Teleports to Hilda if not already in range
     while not await client.is_in_npc_range():
         await client.teleport(hilda)
         await asyncio.sleep(2)
@@ -496,7 +493,6 @@ async def buy_potions(client: Client, recall: bool = True, original_zone=None):
                 except LoadingScreenNotFound:
                     pass
 
-
 async def to_world(clients, destinationWorld):
     world_hub_zones = ['WizardCity/WC_Hub', 'Krokotopia/KT_Hub', 'Marleybone/MB_Hub', 'MooShu/MS_Hub', 'DragonSpire/DS_Hub_Cathedral', 'Grizzleheim/GH_MainHub', 'Celestia/CL_Hub', 'Wysteria/PA_Hub', 'Zafaria/ZF_Z00_Hub', 'Avalon/AV_Z00_Hub', 'Azteca/AZ_Z00_Zocalo', 'Khrysalis/KR_Z00_Hub', 'Polaris/PL_Z00_Walruskberg', 'Mirage/MR_Z00_Hub', 'Empyrea/EM_Z00_Aeriel_HUB', 'Karamelle/KM_Z00_HUB', 'Lemuria/LM_Z00_Hub']
     world_list = ["WizardCity", "Krokotopia", "Marleybone", "MooShu", "DragonSpire", "Grizzleheim", "Celestia", "Wysteria", "Zafaria", "Avalon", "Azteca", "Khrysalis", "Polaris", "Mirage", "Empyrea", "Karamelle", "Lemuria"]
@@ -530,6 +526,9 @@ async def is_potion_needed(client: Client, minimum_mana: int = 16):
         minimum_mana = client_level
     combined_minimum_mana = int(0.23 * max_mana) + minimum_mana
 
+    if max_health == 0:
+        return False
+
     if mana < combined_minimum_mana or float(health) / float(max_health) < 0.55:
         return True
     else:
@@ -546,6 +545,10 @@ async def auto_potions_force_buy(client: Client, mark: bool = False, minimum_man
             recall = True
             # mark if needed
             if mark:
+                await client.send_key(Keycode.PAGE_DOWN, 0.1)
+                await asyncio.sleep(0.5)
+                await client.send_key(Keycode.S, 3)
+                await asyncio.sleep(0.5)
                 await client.send_key(Keycode.PAGE_DOWN, 0.1)
         # Navigate to ravenwood
         await navigate_to_ravenwood(client)
@@ -1233,7 +1236,7 @@ def index_with_str(input_str, desired_str: str) -> int:
     return None
 
 
-def read_webpage(url):
+def read_webpage(url) -> Union[List, None]:
     # return a list of lines from a hosted file
     try:
         response = requests.get(url, allow_redirects=True)

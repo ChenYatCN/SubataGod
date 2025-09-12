@@ -15,6 +15,7 @@ class CompilerError(Exception):
 class InstructionKind(Enum):
     kill = auto()
     sleep = auto()
+    restart_bot = auto()
 
     log_single = auto()
     log_multi = auto()
@@ -37,6 +38,13 @@ class InstructionKind(Enum):
     push_stack = auto()
     pop_stack = auto()
     write_stack = auto()
+
+    set_timer = auto()
+    end_timer = auto()
+
+    declare_constant = auto()
+
+    compound_deimos_call = auto()
 
     nop = auto()
 
@@ -118,7 +126,34 @@ class Compiler:
         self.emit(InstructionKind.deimos_call, [com.player_selector, com.kind.name, com.data])
 
     def compile_command(self, com: Command):
-        match com.kind:
+        if isinstance(com, ParallelCommandStmt):
+                # Compile each command in the parallel statement
+                for cmd in com.commands:
+                    self.compile_command(cmd)
+                return
+
+        match com.kind: 
+            case CommandKind.restart_bot:
+                self.emit(InstructionKind.restart_bot)
+            case CommandKind.toggle_combat:
+                self.emit(InstructionKind.deimos_call, [com.player_selector, com.kind.name, com.data])
+            case CommandKind.set_zone:
+                self.emit(InstructionKind.deimos_call, [com.player_selector, com.kind.name, com.data])
+            case CommandKind.set_goal:
+                self.emit(InstructionKind.deimos_call, [com.player_selector, com.kind.name, com.data])
+            case CommandKind.set_quest:
+                self.emit(InstructionKind.deimos_call, [com.player_selector, com.kind.name, com.data])
+            case CommandKind.compound:
+                command_entries = []
+                for sub_command in com.data:
+                    command_entries.append([
+                        sub_command.player_selector,
+                        sub_command.kind.name,
+                        sub_command.data
+                    ])
+                self.emit(InstructionKind.compound_deimos_call, command_entries)
+            case CommandKind.autopet:
+                self.emit(InstructionKind.deimos_call, [com.player_selector, com.kind.name, com.data])
             case CommandKind.kill:
                 self.emit(InstructionKind.kill)
             case CommandKind.sleep:
@@ -135,9 +170,11 @@ class Compiler:
 
             case CommandKind.sendkey | CommandKind.click | CommandKind.teleport \
                 | CommandKind.goto | CommandKind.usepotion | CommandKind.buypotions \
-                | CommandKind.relog | CommandKind.tozone:
+                | CommandKind.relog | CommandKind.tozone | CommandKind.cursor:
                 self.emit_deimos_call(com)
 
+            case CommandKind.select_friend:
+                self.emit_deimos_call(com)
             case CommandKind.waitfor:
                 # copy the original data to split inverted waitfor in two
                 non_inverted_com = copy.copy(com)
@@ -158,7 +195,7 @@ class Compiler:
     def process_labels(self, program: list[Instruction]):
         new_program: list[Instruction] = []
         offsets = {}
-
+    
         # discover labels
         for idx, instr in enumerate(program):
             match instr.kind:
@@ -170,9 +207,9 @@ class Compiler:
                         new_program.append(Instruction(InstructionKind.nop))
                 case _:
                     new_program.append(instr)
-
+    
         program = new_program
-
+    
         # resolve labels
         for idx, instr in enumerate(program):
             match instr.kind:
@@ -192,7 +229,7 @@ class Compiler:
                     instr.data[2] = offset - idx
                 case _:
                     pass
-
+    
         return program
 
     def compile_block_def(self, block_def: BlockDefStmt):
@@ -219,6 +256,11 @@ class Compiler:
 
     def prep_expression(self, expr: Expression):
         match expr:
+            case ConstantCheckExpression():
+                self.prep_expression(expr.value)
+            case AndExpression() | OrExpression():
+                for sub_expr in expr.expressions:
+                    self.prep_expression(sub_expr)
             case BinaryExpression():
                 self.prep_expression(expr.lhs)
                 self.prep_expression(expr.rhs)
@@ -227,11 +269,28 @@ class Compiler:
                     expr.loc = StackLocExpression(self.stack_loc(expr.loc.sym))
                 else:
                     raise CompilerError(f"Malformed ReadVarExpr: {expr}")
-            case SelectorGroup():
+            case SelectorGroup() | UnaryExpression():
                 self.prep_expression(expr.expr)
-            case UnaryExpression():
+            case ListExpression():
+                if hasattr(expr, 'items'):
+                    if isinstance(expr.items, list):
+                        if len(expr.items) == 1 and isinstance(expr.items[0], ListExpression):
+                            self.prep_expression(expr.items[0])
+                        else:
+                            for item in expr.items:
+                                self.prep_expression(item)
+                    elif isinstance(expr.items, ListExpression):
+                        self.prep_expression(expr.items)
+                    else:
+                        raise CompilerError(f"Unexpected type for ListExpression.items: {type(expr.items)}")
+                else:
+                    raise CompilerError(f"ListExpression missing 'items' attribute: {expr}")
+            case RangeMinExpression() | RangeMaxExpression():
+                self.prep_expression(expr.range_expr)
+            case IndexAccessExpression():
                 self.prep_expression(expr.expr)
-            case NumberExpression() | StringExpression() | KeyExpression() | CommandExpression() | XYZExpression() | IdentExpression() | StackLocExpression() | Eval():
+                self.prep_expression(expr.index)
+            case ConstantExpression() |NumberExpression() | StringExpression() | KeyExpression() | CommandExpression() | XYZExpression() | IdentExpression() | StackLocExpression() | Eval():
                 pass
             case _:
                 raise CompilerError(f"Unhandled expression type: {expr}")
@@ -301,6 +360,19 @@ class Compiler:
 
     def _compile(self, stmt: Stmt):
         match stmt:
+            case ConstantDeclStmt():
+                self.prep_expression(stmt.value)
+                self.emit(InstructionKind.declare_constant, [stmt.name, stmt.value])
+            case ParallelCommandStmt():
+                command_entries = []
+                for command in stmt.commands:
+                    command_entries.append([command.player_selector, command.kind.name, command.data])
+                self.emit(InstructionKind.compound_deimos_call, command_entries)
+            case TimerStmt():
+                if stmt.action == TimerAction.start:
+                    self.emit(InstructionKind.set_timer, stmt.timer_name)
+                else:  # TimerAction.end
+                    self.emit(InstructionKind.end_timer, stmt.timer_name)
             case StmtList():
                 for inner in stmt.stmts:
                     self._compile(inner)
