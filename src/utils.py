@@ -543,13 +543,11 @@ async def auto_potions_force_buy(client: Client, mark: bool = False, minimum_man
             recall = False
         else:
             recall = True
-            # mark if needed
-            if mark:
-                await client.send_key(Keycode.PAGE_DOWN, 0.1)
-                await asyncio.sleep(0.5)
-                await client.send_key(Keycode.S, 3)
-                await asyncio.sleep(0.5)
-                await client.send_key(Keycode.PAGE_DOWN, 0.1)
+            await client.send_key(Keycode.PAGE_DOWN, 0.1)
+            await asyncio.sleep(0.5)
+            await client.send_key(Keycode.S, 3)
+            await asyncio.sleep(0.5)
+            await client.send_key(Keycode.PAGE_DOWN, 0.1)
         # Navigate to ravenwood
         await navigate_to_ravenwood(client)
         # Navigate to commons
