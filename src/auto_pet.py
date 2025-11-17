@@ -37,17 +37,18 @@ async def nomnom(client: Client, ignore_pet_level_up: bool, only_play_dance_game
 
     while not finished_feeding:
         popup_title = await get_popup_title(client)
-        while popup_title == 'Dance Game':
+        while not popup_title == 'Dance Game':
             await asyncio.sleep(.125)
             popup_title = await get_popup_title(client)
-    
+
         # wait for dance game popup, and click until the popup goes away and the pet window opens
         while not await is_visible_by_path(client, pet_feed_window_visible_path):
-            if popup_title == 'Dance Game':
+            while popup_title == 'Dance Game':
                 await client.send_key(Keycode.X, 0.1)
+                popup_title = await get_popup_title(client)
+                await asyncio.sleep(.125)
             popup_title = await get_popup_title(client)
             await asyncio.sleep(.125)
-
 
         client.feeding_pet_status = True
         # click until feeder opens

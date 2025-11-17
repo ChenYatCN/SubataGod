@@ -418,7 +418,7 @@ async def navigate_to_ravenwood(client: Client):
     if bartleby_navigation:
         await asyncio.sleep(1)
         current_zone = await client.zone_name()
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(1.5)
         await client.teleport(XYZ(x=-15.123456001281738, y=-3244.67529296875, z=244.01925659179688))
         await wait_for_zone_change(client, current_zone=current_zone)
 
@@ -426,7 +426,7 @@ async def navigate_to_ravenwood(client: Client):
 async def navigate_to_commons_from_ravenwood(client: Client):
     # teleport to ravenwood exit
     current_zone = await client.zone_name()
-    await asyncio.sleep(1)
+    await asyncio.sleep(1.5)
     await client.teleport(XYZ(x=26.100, y=-2205.021, z=-156.463))
     await wait_for_zone_change(client, current_zone=current_zone)
     await asyncio.sleep(1)
@@ -543,11 +543,9 @@ async def auto_potions_force_buy(client: Client, mark: bool = False, minimum_man
             recall = False
         else:
             recall = True
-            await client.send_key(Keycode.PAGE_DOWN, 0.1)
-            await asyncio.sleep(0.5)
-            await client.send_key(Keycode.S, 3)
-            await asyncio.sleep(0.5)
-            await client.send_key(Keycode.PAGE_DOWN, 0.1)
+            # mark if needed
+            if mark:
+                await client.send_key(Keycode.PAGE_DOWN, 0.1)
         # Navigate to ravenwood
         await navigate_to_ravenwood(client)
         # Navigate to commons
@@ -647,23 +645,54 @@ async def click_window_until_closed(client: Client, path):
     else:
         return False
 
-counter = 0
 
-async def refill_potions(client: Client, mark: bool = True, recall: bool = True, original_zone=None):
-    global counter
+async def refill_potions(client: Client, mark: bool = False, recall: bool = True, original_zone=None):
     if await client.stats.reference_level() >= 6:
-        if await client.zone_name() != 'WizardCity/WC_Hub':
-            counter += 1
-            direction = Keycode.W if counter % 2 == 1 else Keycode.S
-            logger.debug(f"Client {client.title} - Moving {'forward' if direction == Keycode.W else 'backward'}.")
-            await client.send_key(direction, 0.4)
-            await asyncio.sleep(1.5)
-            original_mana = await client.stats.current_mana()
+        if mark:
+            if await client.zone_name() != 'WizardCity/WC_Hub':
+                
+                # Handles niche case scenario of teleport just being used before needing to buy potions such as teleporting out of a dungeon
+                recall_timer_window = await get_window_from_path(client.root_window, teleport_mark_recall_timer_path)
+                recall_timer = await recall_timer_window.maybe_text()
 
-            while await client.stats.current_mana() >= original_mana:
-                logger.debug(f'Client {client.title} - Marking Location')
+                if recall_timer != "":
+                    logger.debug(f'Client {client.title} - Waiting out recall timer before going to buy potions.')
+                    recall_timer = int((recall_timer.replace("<center>", "")).replace("</center>", ""))
+
+                    # Sleeping for most of the timer to avoid spamming calls, then checking it every .1 seconds
+                    if recall_timer > 5:
+                        await asyncio.sleep(recall_timer - 2)
+                    while True:
+                        new_timer = await recall_timer_window.maybe_text()
+                        if new_timer == "" or int((str(new_timer).replace("<center>", "")).replace("</center>", "")) <= 0:
+                            break
+                        await asyncio.sleep(0.1)
+                    await asyncio.sleep(2)
+                
+                recall_window = await get_window_from_path(client.root_window, teleport_mark_recall_path)
+                had_mark_before = False
+                if recall_window and not await recall_window.is_control_grayed():
+                    had_mark_before = True
+                    logger.debug(f'Client {client.title} - Already had a mark before placing a new one')
+
+                # press the mark hotkey once and waiting 4s for recall UI to update
                 await client.send_key(Keycode.PAGE_DOWN, 0.1)
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(4.0)
+
+                # re-check the recall button
+                recall_window = await get_window_from_path(client.root_window,teleport_mark_recall_path)
+
+                if not recall_window:
+                    logger.debug(f'Client {client.title} - Could not find Recall button after marking')
+                else:
+                    still_has_mark = not await recall_window.is_control_grayed()
+
+                    if had_mark_before and not still_has_mark:
+                        # originally had mark, but lost it after pressing mark
+                        await client.send_key(Keycode.PAGE_DOWN, 0.1)
+                        await asyncio.sleep(1.0)
+                    else:
+                        logger.debug(f'Client {client.title} - Mark state is valid (has_mark={still_has_mark})')
 
         # Navigate to ravenwood
         await navigate_to_ravenwood(client)
