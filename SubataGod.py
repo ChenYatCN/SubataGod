@@ -55,7 +55,7 @@ gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
 
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
-tool_version: str = '1.9.0'
+tool_version: str = '1.9.1'
 tool_name: str = 'SubataGod'
 tool_author: str = '我是马猪是魔法装饰师'
 repo_name: str = tool_name + '-Wizard101'
