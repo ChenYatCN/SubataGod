@@ -361,4 +361,3 @@ async def auto_pet(client: Client, ignore_pet_level_up: bool, only_play_dance_ga
             except FriendBusyOrInstanceClosed:
                 logger.debug('Client ' + client.title + 'failed to recall from pet pavilion - instance was closed.')
                 break
-

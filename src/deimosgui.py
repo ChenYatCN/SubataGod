@@ -1,20 +1,20 @@
-from enum import Enum, auto
+import ctypes
 import gettext
+import os
 import queue
 import re
-import PySimpleGUI as gui
+import sys
+from enum import Enum, auto
+from threading import Thread
+
 import pyperclip
+import PySimpleGUI as gui
 import PySimpleGUI as sg
+from loguru import logger
+
 from src.combat_objects import school_id_to_names
 from src.paths import wizard_city_dance_game_path
 from src.utils import assign_pet_level, get_ui_tree_text
-import os
-from threading import Thread
-
-import sys
-import re
-from loguru import logger
-import ctypes
 
 gui.set_global_icon("SubataGod_2.ico")
 gui.set_options(suppress_error_popups=True, suppress_raise_key_errors=True)
@@ -23,18 +23,18 @@ gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
 
 global console_sink
 
-# from Deimos import show_expanded_logs
+# from SubataGod import show_expanded_logs
 
 
 import ctypes
 
+
 def terminate_thread(thread: Thread):
     if not thread.is_alive():
         return
-    
+
     exc = ctypes.py_object(SystemExit)
-    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-        ctypes.c_long(thread.ident), exc)
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(thread.ident), exc)
     if res == 0:
         raise ValueError("Invalid thread ID")
     elif res != 1:
@@ -42,8 +42,10 @@ def terminate_thread(thread: Thread):
         ctypes.pythonapi.PyThreadState_SetAsyncExc(thread.ident, None)
         raise SystemError("PyThreadState_SetAsyncExc failed")
 
+
 class ToolClosedException(Exception):
     pass
+
 
 class PsgSink:
     def __init__(self, window: gui.Window, key):
@@ -60,18 +62,15 @@ class PsgSink:
             "SUCCESS": "white",
             "WARNING": "yellow",
             "ERROR": "red",
-            "CRITICAL": "white"
+            "CRITICAL": "white",
         }
 
-        self.level_bg = {
-            "SUCCESS": "green",
-            "CRITICAL": "red"
-        }
+        self.level_bg = {"SUCCESS": "green", "CRITICAL": "red"}
 
     def copy(self):
         log_str = "```\n"
         # print(1)
-        for (line, _, _) in self.buffer:
+        for line, _, _ in self.buffer:
             log_str += line
 
         pyperclip.copy(log_str + "```")
@@ -97,8 +96,8 @@ class PsgSink:
         # text_color = "white"  # Default color
 
         # Strip ANSI color codes
-        ansi_pattern = r'\033\[\d+m'
-        clean_message = re.sub(ansi_pattern, '', message)
+        ansi_pattern = r"\033\[\d+m"
+        clean_message = re.sub(ansi_pattern, "", message)
 
         split_msg = clean_message.split("|")
         if len(split_msg) < 3:
@@ -108,18 +107,18 @@ class PsgSink:
                     break
             else:
                 level = "DEBUG"
-        
+
         else:
             level = split_msg[1].lstrip().rstrip()
 
         def collapse_log(input: str) -> str:
             if "-" not in input:
                 return input
-            
+
             split_input = input.split("-")
             if len(split_input) < 4:
                 return input
-            
+
             return split_input[3].lstrip()
 
         truncated_message = level + " - " + collapse_log(clean_message)
@@ -136,16 +135,23 @@ class PsgSink:
                 message_to_write = truncated_message
 
             if level in self.level_bg:
-                self.window[self.key].print(message_to_write, end='', text_color=self.level_colors[level], background_color = self.level_bg[level])
+                self.window[self.key].print(
+                    message_to_write,
+                    end="",
+                    text_color=self.level_colors[level],
+                    background_color=self.level_bg[level],
+                )
                 return
-            
-            self.window[self.key].print(message_to_write, end='', text_color=self.level_colors[level])
+
+            self.window[self.key].print(
+                message_to_write, end="", text_color=self.level_colors[level]
+            )
         except Exception:
             # Silently fail if we can't print to the window
             pass
 
     def refresh(self):
-        self.window[self.key].update('')
+        self.window[self.key].update("")
         for clean, trunc, level in self.buffer:
             try:
                 message_to_write = clean
@@ -153,10 +159,17 @@ class PsgSink:
                     message_to_write = trunc
 
                 if level in self.level_bg:
-                    self.window[self.key].print(message_to_write, end='', text_color=self.level_colors[level], background_color = self.level_bg[level])
+                    self.window[self.key].print(
+                        message_to_write,
+                        end="",
+                        text_color=self.level_colors[level],
+                        background_color=self.level_bg[level],
+                    )
                     continue
-                
-                self.window[self.key].print(message_to_write, end='', text_color=self.level_colors[level])
+
+                self.window[self.key].print(
+                    message_to_write, end="", text_color=self.level_colors[level]
+                )
             except Exception:
                 pass
 
@@ -165,12 +178,12 @@ class PsgSink:
 
 
 class GUICommandType(Enum):
-    # deimos <-> window
+    # SubataGod <-> window
     Close = auto()
     AttemptedClose = auto()
     CloseFromBackend = auto()
 
-    # window -> deimos
+    # window -> SubataGod
     ToggleOption = auto()
     Copy = auto()
     SelectEnemy = auto()
@@ -212,6 +225,7 @@ class GUICommandType(Enum):
 
     ShowUITreePopup = auto()
     ShowEntityListPopup = auto()
+
 
 # TODO:
 # - inherit from StrEnum in 3.11 to make this nicer
@@ -277,81 +291,133 @@ class GUICommand:
 
 
 def hotkey_button(name: str, key, auto_size: bool, text_color: str, button_color: str):
-    return gui.Button(name, button_color=(text_color, button_color), auto_size_button=auto_size, key=key)
+    return gui.Button(
+        name,
+        button_color=(text_color, button_color),
+        auto_size_button=auto_size,
+        key=key,
+    )
 
 
-def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, langcode):
+def create_gui(
+    gui_theme,
+    gui_text_color,
+    gui_button_color,
+    tool_name,
+    tool_version,
+    gui_on_top,
+    langcode,
+):
     gui.theme(gui_theme)
 
-    if langcode != 'en':
+    if langcode != "en":
         translate = gettext.translation("messages", "locale", languages=[langcode])
         tl = translate.gettext
     else:
         # maybe use gettext (module) as translate instead?
-        gettext.bindtextdomain('messages', 'locale')
-        gettext.textdomain('messages')
+        gettext.bindtextdomain("messages", "locale")
+        gettext.textdomain("messages")
         tl = gettext.gettext
 
     gui.popup(
-        tl('Deimos will always be free and open-source.\nBy using Deimos, you agree to the GPL v3 license agreement.\nIf you bought this, you got scammed!'), 
-        title=tl('License Agreement'), 
-        keep_on_top=True, 
-        text_color=gui_text_color, 
+        tl(
+            "SubataGod will always be free and open-source.\nBy using SubataGod, you agree to the GPL v3 license agreement.\nIf you bought this, you got scammed!"
+        ),
+        title=tl("License Agreement"),
+        keep_on_top=True,
+        text_color=gui_text_color,
         button_color=(gui_text_color, gui_button_color),
-        auto_close = True,
-        auto_close_duration = 5,
-        non_blocking = True
+        auto_close=True,
+        auto_close_duration=5,
+        non_blocking=True,
     )
 
     global hotkey_button
     original_hotkey_button = hotkey_button
 
-    def hotkey_button(name, key, auto_size=False, text_color=gui_text_color, button_color=gui_button_color):
+    def hotkey_button(
+        name,
+        key,
+        auto_size=False,
+        text_color=gui_text_color,
+        button_color=gui_button_color,
+    ):
         return original_hotkey_button(name, key, auto_size, text_color, button_color)
 
     # TODO: Switch to using keys for this stuff
     toggles: list[tuple[str, str]] = [
-        (tl('Speedhack'), GUIKeys.toggle_speedhack),
-        (tl('Combat'), GUIKeys.toggle_combat),
-        (tl('Dialogue'), GUIKeys.toggle_dialogue),
-        (tl('Sigil'), GUIKeys.toggle_sigil),
-        (tl('Questing'), GUIKeys.toggle_questing),
-        (tl('Auto Pet'), GUIKeys.toggle_auto_pet),
-        (tl('Auto Potion'), GUIKeys.toggle_auto_potion),
-		(tl('Auto Fish'), GUIKeys.toggle_auto_fish)
+        (tl("Speedhack"), GUIKeys.toggle_speedhack),
+        (tl("Combat"), GUIKeys.toggle_combat),
+        (tl("Dialogue"), GUIKeys.toggle_dialogue),
+        (tl("Sigil"), GUIKeys.toggle_sigil),
+        (tl("Questing"), GUIKeys.toggle_questing),
+        (tl("Auto Pet"), GUIKeys.toggle_auto_pet),
+        (tl("Auto Potion"), GUIKeys.toggle_auto_potion),
+        (tl("Auto Fish"), GUIKeys.toggle_auto_fish),
     ]
     hotkeys: list[tuple[str, str]] = [
-        (tl('Quest TP'), GUIKeys.hotkey_quest_tp),
-        (tl('Freecam'), GUIKeys.toggle_freecam),
-        (tl('Freecam TP'), GUIKeys.hotkey_freecam_tp)
+        (tl("Quest TP"), GUIKeys.hotkey_quest_tp),
+        (tl("Freecam"), GUIKeys.toggle_freecam),
+        (tl("Freecam TP"), GUIKeys.hotkey_freecam_tp),
     ]
     mass_hotkeys = [
-        (tl('Mass TP'), GUIKeys.mass_hotkey_mass_tp),
-        (tl('XYZ Sync'), GUIKeys.mass_hotkey_xyz_sync),
-        (tl('X Press'), GUIKeys.mass_hotkey_x_press)
+        (tl("Mass TP"), GUIKeys.mass_hotkey_mass_tp),
+        (tl("XYZ Sync"), GUIKeys.mass_hotkey_xyz_sync),
+        (tl("X Press"), GUIKeys.mass_hotkey_x_press),
     ]
-    toggles_layout = [[hotkey_button(name, key), gui.Text(tl('Disabled'), key=f'{name}Status', auto_size_text=False, size=(7, 1), text_color=gui_text_color)] for name, key in toggles]
-    framed_toggles_layout = gui.Frame(tl('Toggles'), toggles_layout, title_color=gui_text_color)
+    toggles_layout = [
+        [
+            hotkey_button(name, key),
+            gui.Text(
+                tl("Disabled"),
+                key=f"{name}Status",
+                auto_size_text=False,
+                size=(7, 1),
+                text_color=gui_text_color,
+            ),
+        ]
+        for name, key in toggles
+    ]
+    framed_toggles_layout = gui.Frame(
+        tl("Toggles"), toggles_layout, title_color=gui_text_color
+    )
     hotkeys_layout = [[hotkey_button(name, key)] for name, key in hotkeys]
-    framed_hotkeys_layout = gui.Frame(tl('Hotkeys'), hotkeys_layout, title_color=gui_text_color)
+    framed_hotkeys_layout = gui.Frame(
+        tl("Hotkeys"), hotkeys_layout, title_color=gui_text_color
+    )
     mass_hotkeys_layout = [[hotkey_button(name, key)] for name, key in mass_hotkeys]
-    framed_mass_hotkeys_layout = gui.Frame(tl('Mass Hotkeys'), mass_hotkeys_layout, title_color=gui_text_color)
+    framed_mass_hotkeys_layout = gui.Frame(
+        tl("Mass Hotkeys"), mass_hotkeys_layout, title_color=gui_text_color
+    )
 
-    client_title = gui.Text(tl('Client') + ': ', key='Title', text_color=gui_text_color)
+    client_title = gui.Text(tl("Client") + ": ", key="Title", text_color=gui_text_color)
 
     # TODO: Does it make any sense to translate this? Has more occurences later in the file
     # x_pos = gui.Text('x: ', key='x', auto_size_text=False, text_color=gui_text_color)
     # y_pos = gui.Text('y: ', key='y', auto_size_text=False, text_color=gui_text_color)
     # z_pos = gui.Text('z: ', key='z', auto_size_text=False, text_color=gui_text_color)
     # yaw = gui.Text(tl('Yaw') + ': ', key='Yaw', auto_size_text=False, text_color=gui_text_color)
-    xyz_pos = gui.Text("Position (XYZ): ", key = 'xyz', auto_size_text=False, text_color=gui_text_color)
-    ypr_ori = gui.Text("Orientation (PRY): ", key = 'pry', auto_size_text=False, text_color=gui_text_color)
+    xyz_pos = gui.Text(
+        "Position (XYZ): ", key="xyz", auto_size_text=False, text_color=gui_text_color
+    )
+    ypr_ori = gui.Text(
+        "Orientation (PRY): ",
+        key="pry",
+        auto_size_text=False,
+        text_color=gui_text_color,
+    )
 
-    zone_info = gui.Text(tl('Zone') + ': ', key='Zone', auto_size_text=False, size=(62, 1), text_color=gui_text_color)
+    zone_info = gui.Text(
+        tl("Zone") + ": ",
+        key="Zone",
+        auto_size_text=False,
+        size=(62, 1),
+        text_color=gui_text_color,
+    )
 
-    copy_pos = hotkey_button(tl('Copy Position'), GUIKeys.copy_position)
-    copy_zone = hotkey_button(tl('Copy Zone'), GUIKeys.copy_zone)
-    copy_yaw = hotkey_button(tl('Copy Rotation'), GUIKeys.copy_rotation)
+    copy_pos = hotkey_button(tl("Copy Position"), GUIKeys.copy_position)
+    copy_zone = hotkey_button(tl("Copy Zone"), GUIKeys.copy_zone)
+    copy_yaw = hotkey_button(tl("Copy Rotation"), GUIKeys.copy_rotation)
 
     client_info_layout = [
         [client_title],
@@ -361,211 +427,457 @@ def create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_vers
         # [z_pos],
         # [yaw]
         [xyz_pos],
-        [ypr_ori]
+        [ypr_ori],
     ]
 
-    utils_layout = [
-        [copy_zone],
-        [copy_pos],
-        [copy_yaw]
-    ]
+    utils_layout = [[copy_zone], [copy_pos], [copy_yaw]]
 
-    framed_utils_layout = gui.Frame(tl('Utils'), utils_layout, title_color=gui_text_color)
+    framed_utils_layout = gui.Frame(
+        tl("Utils"), utils_layout, title_color=gui_text_color
+    )
 
-    dev_utils_notice = tl('The utils below are for advanced users and no support will be given on them.')
-    helpful_support_notice = tl('Be sure to include your logs when asking for support.')
+    dev_utils_notice = tl(
+        "The utils below are for advanced users and no support will be given on them."
+    )
+    helpful_support_notice = tl("Be sure to include your logs when asking for support.")
 
     custom_tp_layout = [
         [gui.Text(dev_utils_notice, text_color=gui_text_color)],
         [
-            gui.Text('X:', text_color=gui_text_color), gui.InputText(size=(6, 1), key='XInput'),
-            gui.Text('Y:', text_color=gui_text_color), gui.InputText(size=(6, 1), key='YInput'),
-            gui.Text('Z:', text_color=gui_text_color), gui.InputText(size=(7, 1), key='ZInput'),
-            gui.Text(tl('Yaw') + ': ', text_color=gui_text_color), gui.InputText(size=(6, 1), key='YawInput'),
-            hotkey_button(tl('Custom TP'), GUIKeys.button_custom_tp)
+            gui.Text("X:", text_color=gui_text_color),
+            gui.InputText(size=(6, 1), key="XInput"),
+            gui.Text("Y:", text_color=gui_text_color),
+            gui.InputText(size=(6, 1), key="YInput"),
+            gui.Text("Z:", text_color=gui_text_color),
+            gui.InputText(size=(7, 1), key="ZInput"),
+            gui.Text(tl("Yaw") + ": ", text_color=gui_text_color),
+            gui.InputText(size=(6, 1), key="YawInput"),
+            hotkey_button(tl("Custom TP"), GUIKeys.button_custom_tp),
         ],
         [
-            gui.Text(tl('Entity Name') + ':', text_color=gui_text_color), gui.InputText(size=(36, 1), key='EntityTPInput'),
-            hotkey_button(tl('Entity TP'), GUIKeys.button_entity_tp)
-        ]
+            gui.Text(tl("Entity Name") + ":", text_color=gui_text_color),
+            gui.InputText(size=(36, 1), key="EntityTPInput"),
+            hotkey_button(tl("Entity TP"), GUIKeys.button_entity_tp),
+        ],
     ]
 
-    framed_custom_tp_layout = gui.Frame(tl('TP Utils'), custom_tp_layout, title_color=gui_text_color)
+    framed_custom_tp_layout = gui.Frame(
+        tl("TP Utils"), custom_tp_layout, title_color=gui_text_color
+    )
 
     dev_utils_layout = [
         [gui.Text(dev_utils_notice, text_color=gui_text_color)],
         [
-            hotkey_button(tl('实体位置列表'), GUIKeys.copy_entity_list, True),
-            hotkey_button(tl('UI树列表'), GUIKeys.copy_ui_tree, True)
+            hotkey_button(tl("实体位置列表"), GUIKeys.copy_entity_list, True),
+            hotkey_button(tl("UI树列表"), GUIKeys.copy_ui_tree, True),
         ],
         [
-            gui.Text(tl('Zone Name') + ':', text_color=gui_text_color), gui.InputText(size=(13, 1), key='ZoneInput'),
-            hotkey_button(tl('Go To Zone'), GUIKeys.button_go_to_zone),
-            hotkey_button(tl('Mass Go To Zone'), GUIKeys.button_mass_go_to_zone, True)
+            gui.Text(tl("Zone Name") + ":", text_color=gui_text_color),
+            gui.InputText(size=(13, 1), key="ZoneInput"),
+            hotkey_button(tl("Go To Zone"), GUIKeys.button_go_to_zone),
+            hotkey_button(tl("Mass Go To Zone"), GUIKeys.button_mass_go_to_zone, True),
         ],
         [
-            gui.Text(tl('World Name') + ':', text_color=gui_text_color),
+            gui.Text(tl("World Name") + ":", text_color=gui_text_color),
             # TODO: Come back with some ingenius solution for this
             gui.Combo(
-                ['WizardCity', 'Krokotopia', 'Marleybone', 'MooShu', 'DragonSpire', 'Grizzleheim', 'Celestia', 'Wysteria', 'Zafaria', 'Avalon', 'Azteca', 'Khrysalis', 'Polaris', 'Mirage', 'Empyrea', 'Karamelle', 'Lemuria'],
-                default_value='WizardCity', readonly=True,text_color=gui_text_color, size=(13, 1), key='WorldInput'
+                [
+                    "WizardCity",
+                    "Krokotopia",
+                    "Marleybone",
+                    "MooShu",
+                    "DragonSpire",
+                    "Grizzleheim",
+                    "Celestia",
+                    "Wysteria",
+                    "Zafaria",
+                    "Avalon",
+                    "Azteca",
+                    "Khrysalis",
+                    "Polaris",
+                    "Mirage",
+                    "Empyrea",
+                    "Karamelle",
+                    "Lemuria",
+                ],
+                default_value="WizardCity",
+                readonly=True,
+                text_color=gui_text_color,
+                size=(13, 1),
+                key="WorldInput",
             ),
-            hotkey_button(tl('Go To World'), GUIKeys.button_go_to_world, True),
-            hotkey_button(tl('Mass Go To World'), GUIKeys.button_mass_go_to_world, True)
+            hotkey_button(tl("Go To World"), GUIKeys.button_go_to_world, True),
+            hotkey_button(
+                tl("Mass Go To World"), GUIKeys.button_mass_go_to_world, True
+            ),
         ],
         [
-            hotkey_button(tl('Go To Bazaar'), GUIKeys.button_go_to_bazaar, True),
-            hotkey_button(tl('Mass Go To Bazaar'), GUIKeys.button_mass_go_to_bazaar, True),
-            hotkey_button(tl('Refill Potions'), GUIKeys.button_refill_potions, True),
-            hotkey_button(tl('Mass Refill Potions'), GUIKeys.button_mass_refill_potions, True)
-        ]
+            hotkey_button(tl("Go To Bazaar"), GUIKeys.button_go_to_bazaar, True),
+            hotkey_button(
+                tl("Mass Go To Bazaar"), GUIKeys.button_mass_go_to_bazaar, True
+            ),
+            hotkey_button(tl("Refill Potions"), GUIKeys.button_refill_potions, True),
+            hotkey_button(
+                tl("Mass Refill Potions"), GUIKeys.button_mass_refill_potions, True
+            ),
+        ],
     ]
 
-    framed_dev_utils_layout = gui.Frame(tl('Dev Utils'), dev_utils_layout, title_color=gui_text_color)
+    framed_dev_utils_layout = gui.Frame(
+        tl("Dev Utils"), dev_utils_layout, title_color=gui_text_color
+    )
 
     camera_controls_layout = [
         [gui.Text(dev_utils_notice, text_color=gui_text_color)],
         [
-            gui.Text('X:', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamXInput'),
-            gui.Text('Y:', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamYInput'),
-            gui.Text('Z:', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamZInput'),
-            hotkey_button(tl('Set Camera Position'), GUIKeys.button_set_camera_position, True)
+            gui.Text("X:", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamXInput"),
+            gui.Text("Y:", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamYInput"),
+            gui.Text("Z:", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamZInput"),
+            hotkey_button(
+                tl("Set Camera Position"), GUIKeys.button_set_camera_position, True
+            ),
         ],
         [
-            gui.Text(tl('Yaw') + ':', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamYawInput'),
-            gui.Text(tl('Roll') + ':', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamRollInput'),
-            gui.Text(tl('Pitch') + ':', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamPitchInput')
+            gui.Text(tl("Yaw") + ":", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamYawInput"),
+            gui.Text(tl("Roll") + ":", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamRollInput"),
+            gui.Text(tl("Pitch") + ":", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamPitchInput"),
         ],
         [
-            gui.Text(tl('Entity') + ':', text_color=gui_text_color), gui.InputText(size=(18, 1), key='CamEntityInput'),
-            hotkey_button(tl('Anchor'), GUIKeys.button_anchor, text_color=gui_text_color),
-            hotkey_button(tl('Toggle Camera Collision'), GUIKeys.toggle_camera_collision, True)
+            gui.Text(tl("Entity") + ":", text_color=gui_text_color),
+            gui.InputText(size=(18, 1), key="CamEntityInput"),
+            hotkey_button(
+                tl("Anchor"), GUIKeys.button_anchor, text_color=gui_text_color
+            ),
+            hotkey_button(
+                tl("Toggle Camera Collision"), GUIKeys.toggle_camera_collision, True
+            ),
         ],
         [
-            gui.Text(tl('Distance') + ':', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamDistanceInput'),
-            gui.Text(tl('Min') + ':', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamMinInput'),
-            gui.Text(tl('Max') + ':', text_color=gui_text_color), gui.InputText(size=(10, 1), key='CamMaxInput'),
-            hotkey_button(tl('Set Distance'), GUIKeys.button_set_distance, True)
+            gui.Text(tl("Distance") + ":", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamDistanceInput"),
+            gui.Text(tl("Min") + ":", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamMinInput"),
+            gui.Text(tl("Max") + ":", text_color=gui_text_color),
+            gui.InputText(size=(10, 1), key="CamMaxInput"),
+            hotkey_button(tl("Set Distance"), GUIKeys.button_set_distance, True),
         ],
         [
-            hotkey_button(tl('Copy Camera Position'), GUIKeys.copy_camera_position, True),
-            hotkey_button(tl('Copy Camera Rotation'), GUIKeys.copy_camera_rotation, True)
-        ]
+            hotkey_button(
+                tl("Copy Camera Position"), GUIKeys.copy_camera_position, True
+            ),
+            hotkey_button(
+                tl("Copy Camera Rotation"), GUIKeys.copy_camera_rotation, True
+            ),
+        ],
     ]
 
-    framed_camera_controls_layout = gui.Frame(tl('Camera Controls'), camera_controls_layout, title_color=gui_text_color)
+    framed_camera_controls_layout = gui.Frame(
+        tl("Camera Controls"), camera_controls_layout, title_color=gui_text_color
+    )
 
     stat_viewer_layout = [
         [gui.Text(dev_utils_notice, text_color=gui_text_color)],
-        [gui.Text(tl('Caster/Target Indices') + ':', text_color=gui_text_color), gui.Combo([i + 1 for i in range(12)], text_color=gui_text_color, size=(21, 1), default_value=1, key='EnemyInput', readonly=True), gui.Combo([i + 1 for i in range(12)], text_color=gui_text_color, size=(21, 1), default_value=1, key='AllyInput', readonly=True)],
         [
-            gui.Text(tl('Dmg') + ':', text_color=gui_text_color), gui.InputText('', size=(7, 1), key='DamageInput'),
-            gui.Text(tl('School') + ':', text_color=gui_text_color),
-            # TODO: Also needs some smart solution
-            gui.Combo(['Fire', 'Ice', 'Storm', 'Myth', 'Life', 'Death', 'Balance', 'Star', 'Sun', 'Moon', 'Shadow'], default_value='Fire', size=(7, 1), key='SchoolInput', readonly=True),
-            gui.Text(tl('Crit') + ':', text_color=gui_text_color), gui.Checkbox(None, True, text_color=gui_text_color, key='CritStatus'),
-            hotkey_button(tl('View Stats'), GUIKeys.button_view_stats, True),
-            hotkey_button(tl('Copy Stats'), GUIKeys.copy_stats, True)
+            gui.Text(tl("Caster/Target Indices") + ":", text_color=gui_text_color),
+            gui.Combo(
+                [i + 1 for i in range(12)],
+                text_color=gui_text_color,
+                size=(21, 1),
+                default_value=1,
+                key="EnemyInput",
+                readonly=True,
+            ),
+            gui.Combo(
+                [i + 1 for i in range(12)],
+                text_color=gui_text_color,
+                size=(21, 1),
+                default_value=1,
+                key="AllyInput",
+                readonly=True,
+            ),
         ],
-        [gui.Multiline(tl('No client has been selected.'), key='stat_viewer', size=(64, 8), text_color=gui_text_color, horizontal_scroll=True)],
         [
-            hotkey_button(tl('Swap Members'), GUIKeys.button_swap_members, True),
-            gui.Text(tl('Force School Damage') + ':', text_color=gui_text_color),
-            gui.Checkbox(None, text_color=gui_text_color, key='ForceSchoolStatus')
+            gui.Text(tl("Dmg") + ":", text_color=gui_text_color),
+            gui.InputText("", size=(7, 1), key="DamageInput"),
+            gui.Text(tl("School") + ":", text_color=gui_text_color),
+            # TODO: Also needs some smart solution
+            gui.Combo(
+                [
+                    "Fire",
+                    "Ice",
+                    "Storm",
+                    "Myth",
+                    "Life",
+                    "Death",
+                    "Balance",
+                    "Star",
+                    "Sun",
+                    "Moon",
+                    "Shadow",
+                ],
+                default_value="Fire",
+                size=(7, 1),
+                key="SchoolInput",
+                readonly=True,
+            ),
+            gui.Text(tl("Crit") + ":", text_color=gui_text_color),
+            gui.Checkbox(None, True, text_color=gui_text_color, key="CritStatus"),
+            hotkey_button(tl("View Stats"), GUIKeys.button_view_stats, True),
+            hotkey_button(tl("Copy Stats"), GUIKeys.copy_stats, True),
+        ],
+        [
+            gui.Multiline(
+                tl("No client has been selected."),
+                key="stat_viewer",
+                size=(64, 8),
+                text_color=gui_text_color,
+                horizontal_scroll=True,
+            )
+        ],
+        [
+            hotkey_button(tl("Swap Members"), GUIKeys.button_swap_members, True),
+            gui.Text(tl("Force School Damage") + ":", text_color=gui_text_color),
+            gui.Checkbox(None, text_color=gui_text_color, key="ForceSchoolStatus"),
         ],
     ]
 
-    framed_stat_viewer_layout = gui.Frame(tl('Stat Viewer'), stat_viewer_layout, title_color=gui_text_color)
+    framed_stat_viewer_layout = gui.Frame(
+        tl("Stat Viewer"), stat_viewer_layout, title_color=gui_text_color
+    )
 
     flythrough_layout = [
         [gui.Text(dev_utils_notice, text_color=gui_text_color)],
-        [gui.Multiline(key='flythrough_creator', size=(64, 11), text_color=gui_text_color, horizontal_scroll=True)],
         [
-            gui.Input(key='flythrough_file_path', visible=False),
-            gui.FileBrowse(tl('Import Flythrough'), file_types=(("Text Files", "*.txt"),), auto_size_button=True, button_color=(gui_text_color, gui_button_color)),
-            gui.Input(key='flythrough_save_path', visible=False),
-            gui.FileSaveAs(tl('Export Flythrough'), file_types=(("Text Files", "*.txt"),), auto_size_button=True, button_color=(gui_text_color, gui_button_color)),
-            hotkey_button(tl('Execute Flythrough'), GUIKeys.button_execute_flythrough, True),
-            hotkey_button(tl('Kill Flythrough'), GUIKeys.button_kill_flythrough, True)
-            ],
-    ]
-
-    framed_flythrough_layout = gui.Frame(tl('Flythrough Creator'), flythrough_layout, title_color=gui_text_color)
-
-    bot_creator_layout = [
-        [gui.Text(dev_utils_notice, text_color=gui_text_color)],
-        [gui.Multiline(key='bot_creator', size=(64, 11), text_color=gui_text_color, horizontal_scroll=True)],
+            gui.Multiline(
+                key="flythrough_creator",
+                size=(64, 11),
+                text_color=gui_text_color,
+                horizontal_scroll=True,
+            )
+        ],
         [
-            gui.Input(key='bot_file_path', visible=False),
-            gui.FileBrowse('Import Bot', file_types=(("Text Files", "*.txt"),), auto_size_button=True, button_color=(gui_text_color, gui_button_color)),
-            gui.Input(key='bot_save_path', visible=False),
-            gui.FileSaveAs('Export Bot', file_types=(("Text Files", "*.txt"),), auto_size_button=True, button_color=(gui_text_color, gui_button_color)),
-            hotkey_button(tl('Run Bot'), GUIKeys.button_run_bot, True),
-            hotkey_button(tl('Kill Bot'), GUIKeys.button_kill_bot, True)
-            ],
-    ]
-
-    framed_bot_creator_layout = gui.Frame(tl('Bot Creator'), bot_creator_layout, title_color=gui_text_color)
-
-    combat_config_layout = [
-        [gui.Text(dev_utils_notice, text_color=gui_text_color)],
-        [gui.Multiline(key='combat_config', size=(64, 11), text_color=gui_text_color, horizontal_scroll=True)],
-        [
-            gui.Input(key='combat_file_path', visible=False),
-            gui.FileBrowse('Import Playstyle', file_types=(("Text Files", "*.txt"),), auto_size_button=True, button_color=(gui_text_color, gui_button_color)),
-            gui.Input(key='combat_save_path', visible=False),
-            gui.FileSaveAs('Export Playstyle', file_types=(("Text Files", "*.txt"),), auto_size_button=True, button_color=(gui_text_color, gui_button_color)),
-            hotkey_button(tl('Set Playstyles'), GUIKeys.button_set_playstyles, True),
+            gui.Input(key="flythrough_file_path", visible=False),
+            gui.FileBrowse(
+                tl("Import Flythrough"),
+                file_types=(("Text Files", "*.txt"),),
+                auto_size_button=True,
+                button_color=(gui_text_color, gui_button_color),
+            ),
+            gui.Input(key="flythrough_save_path", visible=False),
+            gui.FileSaveAs(
+                tl("Export Flythrough"),
+                file_types=(("Text Files", "*.txt"),),
+                auto_size_button=True,
+                button_color=(gui_text_color, gui_button_color),
+            ),
+            hotkey_button(
+                tl("Execute Flythrough"), GUIKeys.button_execute_flythrough, True
+            ),
+            hotkey_button(tl("Kill Flythrough"), GUIKeys.button_kill_flythrough, True),
         ],
     ]
 
-    framed_combat_config_layout = gui.Frame(tl('Combat Configurator'), combat_config_layout, title_color=gui_text_color)
+    framed_flythrough_layout = gui.Frame(
+        tl("Flythrough Creator"), flythrough_layout, title_color=gui_text_color
+    )
+
+    bot_creator_layout = [
+        [gui.Text(dev_utils_notice, text_color=gui_text_color)],
+        [
+            gui.Multiline(
+                key="bot_creator",
+                size=(64, 11),
+                text_color=gui_text_color,
+                horizontal_scroll=True,
+            )
+        ],
+        [
+            gui.Input(key="bot_file_path", visible=False),
+            gui.FileBrowse(
+                "导入机器人",
+                file_types=(("Text Files", "*.txt"),),
+                auto_size_button=True,
+                button_color=(gui_text_color, gui_button_color),
+            ),
+            gui.Input(key="bot_save_path", visible=False),
+            gui.FileSaveAs(
+                "导出机器人",
+                file_types=(("Text Files", "*.txt"),),
+                auto_size_button=True,
+                button_color=(gui_text_color, gui_button_color),
+            ),
+            hotkey_button(tl("Run Bot"), GUIKeys.button_run_bot, True),
+            hotkey_button(tl("Kill Bot"), GUIKeys.button_kill_bot, True),
+        ],
+    ]
+
+    framed_bot_creator_layout = gui.Frame(
+        tl("Bot Creator"), bot_creator_layout, title_color=gui_text_color
+    )
+
+    combat_config_layout = [
+        [gui.Text(dev_utils_notice, text_color=gui_text_color)],
+        [
+            gui.Multiline(
+                key="combat_config",
+                size=(64, 11),
+                text_color=gui_text_color,
+                horizontal_scroll=True,
+            )
+        ],
+        [
+            gui.Input(key="combat_file_path", visible=False),
+            gui.FileBrowse(
+                "导入战斗风格",
+                file_types=(("Text Files", "*.txt"),),
+                auto_size_button=True,
+                button_color=(gui_text_color, gui_button_color),
+            ),
+            gui.Input(key="combat_save_path", visible=False),
+            gui.FileSaveAs(
+                "导出战斗风格",
+                file_types=(("Text Files", "*.txt"),),
+                auto_size_button=True,
+                button_color=(gui_text_color, gui_button_color),
+            ),
+            hotkey_button(tl("覆盖战斗风格"), GUIKeys.button_set_playstyles, True),
+        ],
+    ]
+
+    framed_combat_config_layout = gui.Frame(
+        tl("Combat Configurator"), combat_config_layout, title_color=gui_text_color
+    )
 
     misc_utils_layout = [
         [gui.Text(dev_utils_notice, text_color=gui_text_color)],
         [
-            gui.Text(tl('Scale') + ':', text_color=gui_text_color), gui.InputText(size=(8, 1), key='scale'),
-            hotkey_button(tl('Set Scale'), GUIKeys.button_set_scale)
+            gui.Text(tl("Scale") + ":", text_color=gui_text_color),
+            gui.InputText(size=(8, 1), key="scale"),
+            hotkey_button(tl("Set Scale"), GUIKeys.button_set_scale),
         ],
-        [gui.Text('Select a pet world:', text_color=gui_text_color), gui.Combo(['WizardCity', 'Krokotopia', 'Marleybone', 'Mooshu', 'Dragonspyre'], default_value='WizardCity', readonly=True,text_color=gui_text_color, size=(13, 1), key='PetWorldInput')], #, hotkey_button('Set Auto Pet World', True)
+        [
+            gui.Text("Select a pet world:", text_color=gui_text_color),
+            gui.Combo(
+                ["WizardCity", "Krokotopia", "Marleybone", "Mooshu", "Dragonspyre"],
+                default_value="WizardCity",
+                readonly=True,
+                text_color=gui_text_color,
+                size=(13, 1),
+                key="PetWorldInput",
+            ),
+        ],  # , hotkey_button('Set Auto Pet World', True)
     ]
 
-    framed_misc_utils_layout = gui.Frame(tl('Misc Utils'), misc_utils_layout, title_color=gui_text_color)
+    framed_misc_utils_layout = gui.Frame(
+        tl("Misc Utils"), misc_utils_layout, title_color=gui_text_color
+    )
 
     console_layout = [
         [gui.Text(helpful_support_notice, text_color=gui_text_color)],
-        [gui.Multiline(autoscroll=True, horizontal_scroll=True, no_scrollbar=False, key="-CONSOLE-", size=(64, 11), text_color=gui_text_color, disabled = True, echo_stdout_stderr = True)],
         [
-            hotkey_button(tl('Collapse / Expand Logs'), GUIKeys.toggle_show_expanded_logs, True),
-            hotkey_button(tl('Copy Logs'), GUIKeys.copy_logs, True)
+            gui.Multiline(
+                autoscroll=True,
+                horizontal_scroll=True,
+                no_scrollbar=False,
+                key="-CONSOLE-",
+                size=(64, 11),
+                text_color=gui_text_color,
+                disabled=True,
+                echo_stdout_stderr=True,
+            )
+        ],
+        [
+            hotkey_button(
+                tl("折叠日志 / 展开日志"), GUIKeys.toggle_show_expanded_logs, True
+            ),
+            hotkey_button(tl("复制日志"), GUIKeys.copy_logs, True),
         ],
     ]
 
-    framed_console_layout = gui.Frame(tl('Debug Console'), console_layout, title_color=gui_text_color)
+    framed_console_layout = gui.Frame(
+        tl("Debug Console"), console_layout, title_color=gui_text_color
+    )
 
     tabs = [
         [
-            gui.Tab(tl('Hotkeys'), [[framed_toggles_layout, framed_hotkeys_layout, framed_mass_hotkeys_layout, framed_utils_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Camera'), [[framed_camera_controls_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Dev Utils'), [[framed_custom_tp_layout], [framed_dev_utils_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Stat Viewer'), [[framed_stat_viewer_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Flythrough'), [[framed_flythrough_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Bot'), [[framed_bot_creator_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Combat'), [[framed_combat_config_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Misc'), [[framed_misc_utils_layout]], title_color=gui_text_color),
-            gui.Tab(tl('Console'), [[framed_console_layout]], title_color=gui_text_color),
+            gui.Tab(
+                tl("Hotkeys"),
+                [
+                    [
+                        framed_toggles_layout,
+                        framed_hotkeys_layout,
+                        framed_mass_hotkeys_layout,
+                        framed_utils_layout,
+                    ]
+                ],
+                title_color=gui_text_color,
+            ),
+            gui.Tab(
+                tl("Camera"),
+                [[framed_camera_controls_layout]],
+                title_color=gui_text_color,
+            ),
+            gui.Tab(
+                tl("Dev Utils"),
+                [[framed_custom_tp_layout], [framed_dev_utils_layout]],
+                title_color=gui_text_color,
+            ),
+            gui.Tab(
+                tl("Stat Viewer"),
+                [[framed_stat_viewer_layout]],
+                title_color=gui_text_color,
+            ),
+            gui.Tab(
+                tl("Flythrough"),
+                [[framed_flythrough_layout]],
+                title_color=gui_text_color,
+            ),
+            gui.Tab(
+                tl("Bot"), [[framed_bot_creator_layout]], title_color=gui_text_color
+            ),
+            gui.Tab(
+                tl("Combat Configurator"),
+                [[framed_combat_config_layout]],
+                title_color=gui_text_color,
+            ),
+            gui.Tab(
+                tl("Misc"), [[framed_misc_utils_layout]], title_color=gui_text_color
+            ),
+            gui.Tab(
+                tl("Console"), [[framed_console_layout]], title_color=gui_text_color
+            ),
         ]
     ]
 
     layout = [
-        [gui.Text(tl('Deimos will always be a free tool. If you paid for this, you got scammed!'))],
+        [
+            gui.Text(
+                tl(
+                    "SubataGod will always be a free tool. If you paid for this, you got scammed!"
+                )
+            )
+        ],
         [gui.TabGroup(tabs)],
-        [client_info_layout]
+        [client_info_layout],
     ]
 
-    window = gui.Window(title= f'{tool_name} GUI v{tool_version}', layout= layout, keep_on_top=gui_on_top, finalize=True, icon="SubataGod_2.ico", enable_close_attempted_event = False)
-    # window.TKroot.iconbitmap(default = "..\Deimos-logo.icon")
+    window = gui.Window(
+        title=f"{tool_name} GUI v{tool_version}",
+        layout=layout,
+        keep_on_top=gui_on_top,
+        finalize=True,
+        icon="SubataGod_2.ico",
+        enable_close_attempted_event=False,
+    )
+    # window.TKroot.iconbitmap(default = "..\SubataGod-logo.icon")
     return window
+
 
 def show_ui_tree_popup(ui_tree_content):
     ui_tree_list = ui_tree_content.splitlines()
@@ -574,10 +886,10 @@ def show_ui_tree_popup(ui_tree_content):
     path_stack = []
 
     for line in ui_tree_list:
-        indent = len(line) - len(line.lstrip('-'))
-        clean_line = line.lstrip('- ')
+        indent = len(line) - len(line.lstrip("-"))
+        clean_line = line.lstrip("- ")
 
-        name_match = re.search(r'\[(.*?)\]', clean_line)
+        name_match = re.search(r"\[(.*?)\]", clean_line)
         if name_match:
             name = name_match.group(1)
         else:
@@ -593,23 +905,31 @@ def show_ui_tree_popup(ui_tree_content):
         path_stack.append(name)
 
     layout = [
-        [gui.Text('Click the path needed to copy it to clipboard.')],
-        [gui.Listbox(values=ui_tree_list, size=(80, 20), key='-TREE-', enable_events=True)],
-        [gui.Input(key='-SEARCH-', enable_events=True)],
-        [gui.Button('Close')]
+        [gui.Text("Click the path needed to copy it to clipboard.")],
+        [
+            gui.Listbox(
+                values=ui_tree_list, size=(80, 20), key="-TREE-", enable_events=True
+            )
+        ],
+        [gui.Input(key="-SEARCH-", enable_events=True)],
+        [gui.Button("Close")],
     ]
-    UITreeWindow = gui.Window('UI Tree', layout, finalize=True, icon="SubataGod_2.ico", keep_on_top=True)
+    UITreeWindow = gui.Window(
+        "UI Tree", layout, finalize=True, icon="SubataGod_2.ico", keep_on_top=True
+    )
 
     while True:
         event, values = UITreeWindow.read()
-        if event == gui.WINDOW_CLOSED or event == 'Close':
+        if event == gui.WINDOW_CLOSED or event == "Close":
             break
-        elif event == '-SEARCH-':
-            search_term = values['-SEARCH-'].lower()
-            filtered_list = [line for line in ui_tree_list if search_term in line.lower()]
-            UITreeWindow['-TREE-'].update(filtered_list)
-        elif event == '-TREE-' and values['-TREE-']:
-            selected_line = values['-TREE-'][0]
+        elif event == "-SEARCH-":
+            search_term = values["-SEARCH-"].lower()
+            filtered_list = [
+                line for line in ui_tree_list if search_term in line.lower()
+            ]
+            UITreeWindow["-TREE-"].update(filtered_list)
+        elif event == "-TREE-" and values["-TREE-"]:
+            selected_line = values["-TREE-"][0]
             path = path_dict[selected_line]
             UITreeWindow.close()
             path_str = str(path)
@@ -618,39 +938,71 @@ def show_ui_tree_popup(ui_tree_content):
 
     UITreeWindow.close()
 
+
 def show_entity_list_popup(entity_list_content):
     entity_list = entity_list_content.splitlines()
 
     layout = [
-        [gui.Text('Click the entity needed to copy the name and location to clipboard.')],
-        [gui.Listbox(values=entity_list, size=(80, 20), key='-TREE-', enable_events=True)],
-        [gui.Input(key='-SEARCH-', enable_events=True)],
-        [gui.Button('Close')]
+        [
+            gui.Text(
+                "Click the entity needed to copy the name and location to clipboard."
+            )
+        ],
+        [
+            gui.Listbox(
+                values=entity_list, size=(80, 20), key="-TREE-", enable_events=True
+            )
+        ],
+        [gui.Input(key="-SEARCH-", enable_events=True)],
+        [gui.Button("Close")],
     ]
-    EntityListWindow = gui.Window('Entity List', layout, finalize=True, icon="SubataGod_2.ico", keep_on_top=True)
+    EntityListWindow = gui.Window(
+        "Entity List", layout, finalize=True, icon="SubataGod_2.ico", keep_on_top=True
+    )
 
     while True:
         event, values = EntityListWindow.read()
         print(event)
-        if event == gui.WINDOW_CLOSED or event == 'Close':
+        if event == gui.WINDOW_CLOSED or event == "Close":
             break
-        elif event == '-SEARCH-':
-            search_term = values['-SEARCH-'].lower()
-            filtered_list = [line for line in entity_list if search_term in line.lower()]
-            EntityListWindow['-TREE-'].update(filtered_list)
-        elif event == '-TREE-' and values['-TREE-']:
-            selected_line = values['-TREE-'][0]
+        elif event == "-SEARCH-":
+            search_term = values["-SEARCH-"].lower()
+            filtered_list = [
+                line for line in entity_list if search_term in line.lower()
+            ]
+            EntityListWindow["-TREE-"].update(filtered_list)
+        elif event == "-TREE-" and values["-TREE-"]:
+            selected_line = values["-TREE-"][0]
             EntityListWindow.close()
             pyperclip.copy(selected_line)
             return selected_line
 
     EntityListWindow.close()
 
-def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, langcode):
-    window = create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, langcode)
+
+def manage_gui(
+    send_queue: queue.Queue,
+    recv_queue: queue.Queue,
+    gui_theme,
+    gui_text_color,
+    gui_button_color,
+    tool_name,
+    tool_version,
+    gui_on_top,
+    langcode,
+):
+    window = create_gui(
+        gui_theme,
+        gui_text_color,
+        gui_button_color,
+        tool_name,
+        tool_version,
+        gui_on_top,
+        langcode,
+    )
     global console_sink
     global console_psg
-    console_psg = PsgSink(window, '-CONSOLE-')
+    console_psg = PsgSink(window, "-CONSOLE-")
     console_sink = logger.add(console_psg, colorize=True)
 
     running = True
@@ -703,38 +1055,72 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
                 send_queue.put(GUICommand(GUICommandType.AttemptedClose))
 
             # Toggles
-            case GUIKeys.toggle_speedhack | GUIKeys.toggle_combat | GUIKeys.toggle_dialogue | GUIKeys.toggle_sigil | \
-                GUIKeys.toggle_questing | GUIKeys.toggle_auto_pet | GUIKeys.toggle_auto_potion | GUIKeys.toggle_auto_fish | GUIKeys.toggle_freecam | \
-                GUIKeys.toggle_camera_collision | GUIKeys.toggle_show_expanded_logs:
+            case (
+                GUIKeys.toggle_speedhack
+                | GUIKeys.toggle_combat
+                | GUIKeys.toggle_dialogue
+                | GUIKeys.toggle_sigil
+                | GUIKeys.toggle_questing
+                | GUIKeys.toggle_auto_pet
+                | GUIKeys.toggle_auto_potion
+                | GUIKeys.toggle_auto_fish
+                | GUIKeys.toggle_freecam
+                | GUIKeys.toggle_camera_collision
+                | GUIKeys.toggle_show_expanded_logs
+            ):
                 send_queue.put(GUICommand(GUICommandType.ToggleOption, event))
 
             # Copying
-            case GUIKeys.copy_zone | GUIKeys.copy_position | GUIKeys.copy_rotation | \
-                GUIKeys.copy_entity_list | GUIKeys.copy_camera_position | \
-                GUIKeys.copy_camera_rotation | GUIKeys.copy_ui_tree | GUIKeys.copy_stats | GUIKeys.copy_logs:
+            case (
+                GUIKeys.copy_zone
+                | GUIKeys.copy_position
+                | GUIKeys.copy_rotation
+                | GUIKeys.copy_entity_list
+                | GUIKeys.copy_camera_position
+                | GUIKeys.copy_camera_rotation
+                | GUIKeys.copy_ui_tree
+                | GUIKeys.copy_stats
+                | GUIKeys.copy_logs
+            ):
                 send_queue.put(GUICommand(GUICommandType.Copy, event))
 
-
             # Simple teleports
-            case GUIKeys.hotkey_quest_tp | GUIKeys.mass_hotkey_mass_tp | GUIKeys.hotkey_freecam_tp:
+            case (
+                GUIKeys.hotkey_quest_tp
+                | GUIKeys.mass_hotkey_mass_tp
+                | GUIKeys.hotkey_freecam_tp
+            ):
                 send_queue.put(GUICommand(GUICommandType.Teleport, event))
-
 
             # Custom tp
             case GUIKeys.button_custom_tp:
-                tp_inputs = [inputs['XInput'], inputs['YInput'], inputs['ZInput'], inputs['YawInput']]
+                tp_inputs = [
+                    inputs["XInput"],
+                    inputs["YInput"],
+                    inputs["ZInput"],
+                    inputs["YawInput"],
+                ]
                 if any(tp_inputs):
-                    send_queue.put(GUICommand(GUICommandType.CustomTeleport, {
-                        'X': tp_inputs[0],
-                        'Y': tp_inputs[1],
-                        'Z': tp_inputs[2],
-                        'Yaw': tp_inputs[3],
-                    }))
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.CustomTeleport,
+                            {
+                                "X": tp_inputs[0],
+                                "Y": tp_inputs[1],
+                                "Z": tp_inputs[2],
+                                "Yaw": tp_inputs[3],
+                            },
+                        )
+                    )
 
             # Entity tp
             case GUIKeys.button_entity_tp:
-                if inputs['EntityTPInput']:
-                    send_queue.put(GUICommand(GUICommandType.EntityTeleport, inputs['EntityTPInput']))
+                if inputs["EntityTPInput"]:
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.EntityTeleport, inputs["EntityTPInput"]
+                        )
+                    )
 
             # XYZ Sync
             case GUIKeys.mass_hotkey_xyz_sync:
@@ -746,45 +1132,84 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
 
             # Cam stuff
             case GUIKeys.button_anchor:
-                send_queue.put(GUICommand(GUICommandType.AnchorCam, inputs['CamEntityInput']))
+                send_queue.put(
+                    GUICommand(GUICommandType.AnchorCam, inputs["CamEntityInput"])
+                )
 
             case GUIKeys.button_set_camera_position:
-                camera_inputs = [inputs['CamXInput'], inputs['CamYInput'], inputs['CamZInput'], inputs['CamYawInput'], inputs['CamRollInput'], inputs['CamPitchInput']]
+                camera_inputs = [
+                    inputs["CamXInput"],
+                    inputs["CamYInput"],
+                    inputs["CamZInput"],
+                    inputs["CamYawInput"],
+                    inputs["CamRollInput"],
+                    inputs["CamPitchInput"],
+                ]
                 if any(camera_inputs):
-                    send_queue.put(GUICommand(GUICommandType.SetCamPosition, {
-                        'X': camera_inputs[0],
-                        'Y': camera_inputs[1],
-                        'Z': camera_inputs[2],
-                        'Yaw': camera_inputs[3],
-                        'Roll': camera_inputs[4],
-                        'Pitch': camera_inputs[5],
-                    }))
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.SetCamPosition,
+                            {
+                                "X": camera_inputs[0],
+                                "Y": camera_inputs[1],
+                                "Z": camera_inputs[2],
+                                "Yaw": camera_inputs[3],
+                                "Roll": camera_inputs[4],
+                                "Pitch": camera_inputs[5],
+                            },
+                        )
+                    )
 
             case GUIKeys.button_set_distance:
-                distance_inputs = [inputs['CamDistanceInput'], inputs['CamMinInput'], inputs['CamMaxInput']]
+                distance_inputs = [
+                    inputs["CamDistanceInput"],
+                    inputs["CamMinInput"],
+                    inputs["CamMaxInput"],
+                ]
                 if any(distance_inputs):
-                    send_queue.put(GUICommand(GUICommandType.SetCamDistance, {
-                        "Distance": distance_inputs[0],
-                        "Min": distance_inputs[1],
-                        "Max": distance_inputs[2],
-                    }))
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.SetCamDistance,
+                            {
+                                "Distance": distance_inputs[0],
+                                "Min": distance_inputs[1],
+                                "Max": distance_inputs[2],
+                            },
+                        )
+                    )
 
             # Gotos
             case GUIKeys.button_go_to_zone:
-                if inputs['ZoneInput']:
-                    send_queue.put(GUICommand(GUICommandType.GoToZone, (False, str(inputs['ZoneInput']))))
+                if inputs["ZoneInput"]:
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.GoToZone, (False, str(inputs["ZoneInput"]))
+                        )
+                    )
 
             case GUIKeys.button_mass_go_to_zone:
-                if inputs['ZoneInput']:
-                    send_queue.put(GUICommand(GUICommandType.GoToZone, (True, str(inputs['ZoneInput']))))
+                if inputs["ZoneInput"]:
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.GoToZone, (True, str(inputs["ZoneInput"]))
+                        )
+                    )
 
             case GUIKeys.button_go_to_world:
-                if inputs['WorldInput']:
-                    send_queue.put(GUICommand(GUICommandType.GoToWorld, (False, inputs['WorldInput'])))
+                if inputs["WorldInput"]:
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.GoToWorld, (False, inputs["WorldInput"])
+                        )
+                    )
 
             case GUIKeys.button_mass_go_to_world:
-                if inputs['WorldInput']:
-                    send_queue.put(GUICommand(GUICommandType.GoToWorld, (True, inputs['WorldInput'])))
+                if inputs["WorldInput"]:
+                    send_queue.put(
+                        GUICommand(
+                            GUICommandType.GoToWorld, (True, inputs["WorldInput"])
+                        )
+                    )
 
             case GUIKeys.button_go_to_bazaar:
                 send_queue.put(GUICommand(GUICommandType.GoToBazaar, False))
@@ -799,35 +1224,55 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
                 send_queue.put(GUICommand(GUICommandType.RefillPotions, True))
 
             case GUIKeys.button_execute_flythrough:
-                send_queue.put(GUICommand(GUICommandType.ExecuteFlythrough, inputs['flythrough_creator']))
+                send_queue.put(
+                    GUICommand(
+                        GUICommandType.ExecuteFlythrough, inputs["flythrough_creator"]
+                    )
+                )
 
             case GUIKeys.button_kill_flythrough:
                 send_queue.put(GUICommand(GUICommandType.KillFlythrough))
 
             case GUIKeys.button_run_bot:
-                send_queue.put(GUICommand(GUICommandType.ExecuteBot, inputs['bot_creator']))
+                send_queue.put(
+                    GUICommand(GUICommandType.ExecuteBot, inputs["bot_creator"])
+                )
 
             case GUIKeys.button_set_playstyles:
-                send_queue.put(GUICommand(GUICommandType.SetPlaystyles, inputs["combat_config"]))
+                send_queue.put(
+                    GUICommand(GUICommandType.SetPlaystyles, inputs["combat_config"])
+                )
 
             case GUIKeys.button_kill_bot:
                 send_queue.put(GUICommand(GUICommandType.KillBot))
 
             case GUIKeys.button_set_scale:
-                send_queue.put(GUICommand(GUICommandType.SetScale, inputs['scale']))
+                send_queue.put(GUICommand(GUICommandType.SetScale, inputs["scale"]))
 
             case GUIKeys.button_view_stats:
-                enemy_index = re.sub(r'[^0-9]', '', str(inputs['EnemyInput']))
-                ally_index = re.sub(r'[^0-9]', '', str(inputs['AllyInput']))
-                base_damage = re.sub(r'[^0-9]', '', str(inputs['DamageInput']))
-                school_id: int = school_id_to_names[inputs['SchoolInput']]
-                send_queue.put(GUICommand(GUICommandType.SelectEnemy, (int(enemy_index), int(ally_index), base_damage, school_id, inputs['CritStatus'], inputs['ForceSchoolStatus'])))
+                enemy_index = re.sub(r"[^0-9]", "", str(inputs["EnemyInput"]))
+                ally_index = re.sub(r"[^0-9]", "", str(inputs["AllyInput"]))
+                base_damage = re.sub(r"[^0-9]", "", str(inputs["DamageInput"]))
+                school_id: int = school_id_to_names[inputs["SchoolInput"]]
+                send_queue.put(
+                    GUICommand(
+                        GUICommandType.SelectEnemy,
+                        (
+                            int(enemy_index),
+                            int(ally_index),
+                            base_damage,
+                            school_id,
+                            inputs["CritStatus"],
+                            inputs["ForceSchoolStatus"],
+                        ),
+                    )
+                )
 
             case GUIKeys.button_swap_members:
-                enemy_input = inputs['EnemyInput']
-                ally_input = inputs['AllyInput']
-                window['EnemyInput'].update(ally_input)
-                window['AllyInput'].update(enemy_input)
+                enemy_input = inputs["EnemyInput"]
+                ally_input = inputs["AllyInput"]
+                window["EnemyInput"].update(ally_input)
+                window["AllyInput"].update(enemy_input)
 
             # case 'Set Auto Pet World':
             # 	if inputs['PetWorldInput']:
@@ -837,34 +1282,34 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
             case _:
                 pass
 
-        #Updates pet world when it changes, without the need for a button press -slack
-        if inputs and inputs['PetWorldInput'] != wizard_city_dance_game_path[-1]:
-            assign_pet_level(inputs['PetWorldInput'])
+        # Updates pet world when it changes, without the need for a button press -slack
+        if inputs and inputs["PetWorldInput"] != wizard_city_dance_game_path[-1]:
+            assign_pet_level(inputs["PetWorldInput"])
 
         def import_check(input_window_str: str, output_window_str: str):
             if inputs and inputs[input_window_str]:
                 with open(inputs[input_window_str]) as file:
                     file_data = file.readlines()
-                    file_str = ''.join(file_data)
+                    file_str = "".join(file_data)
                     window[output_window_str].update(file_str)
-                    window[input_window_str].update('')
+                    window[input_window_str].update("")
                     file.close()
 
         def export_check(path_window_str: str, content_window_str: str):
             if inputs and inputs[path_window_str]:
-                file = open(inputs[path_window_str], 'w')
+                file = open(inputs[path_window_str], "w")
                 file.write(inputs[content_window_str])
                 file.close()
-                window[path_window_str].update('')
+                window[path_window_str].update("")
 
-        import_check('flythrough_file_path', 'flythrough_creator')
-        export_check('flythrough_save_path', 'flythrough_creator')
+        import_check("flythrough_file_path", "flythrough_creator")
+        export_check("flythrough_save_path", "flythrough_creator")
 
-        import_check('bot_file_path', 'bot_creator')
-        export_check('bot_save_path', 'bot_creator')
+        import_check("bot_file_path", "bot_creator")
+        export_check("bot_save_path", "bot_creator")
 
-        import_check('combat_file_path', 'combat_config')
-        export_check('combat_save_path', 'combat_config')
+        import_check("combat_file_path", "combat_config")
+        export_check("combat_save_path", "combat_config")
 
     # gui.WIN_CLOSED
     window.close()
