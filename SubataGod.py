@@ -56,8 +56,8 @@ from src.sprinty_client import SprintyClient
 from src.stat_viewer import total_stats
 from src.teleport_math import calc_Distance, navmap_tp
 from src.tokenizer import tokenize
+from src.utils import auto_potions  # , assign_pet_level
 from src.utils import (
-    auto_potions,  # , assign_pet_level
     auto_potions_force_buy,
     collect_wisps_with_limit,
     index_with_str,
@@ -75,9 +75,9 @@ gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
 
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
-tool_version: str = "1.9.4"
+tool_version: str = "2.0.0"
 tool_name: str = "SubataGod"
-tool_author: str = "我是马猪是魔法装饰师"
+tool_author: str = "炙逸"
 repo_name: str = tool_name + "-Wizard101"
 branch: str = "master"
 
@@ -194,8 +194,8 @@ def read_config(config_name: str):
     gui_scale = parser.getfloat("gui", "scale", fallback=1.0)
     gui_font = parser.get("gui", "font", fallback="梦源黑体 SC W21")
     gui_font_size = parser.getint("gui", "font_size", fallback=16)
+
     gui.set_options(scaling=gui_scale, font=(gui_font, gui_font_size))
-    # gui.set_options(scaling=gui_scale, font=('Bahnschrift', gui_font_size))
 
     # Auto Sigil Settings
     global use_team_up

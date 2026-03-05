@@ -1,45 +1,65 @@
 import asyncio
 import re
-from asyncio import Task as AsyncTask, TaskGroup
-
-from wizwalker import AddressOutOfRange, Client, XYZ, Keycode, MemoryReadError, Primitive
-from wizwalker.memory import DynamicClientObject
-from wizwalker.memory.memory_objects.quest_data import QuestData, GoalData
-from wizwalker.extensions.wizsprinter import SprintyClient
-from wizwalker.extensions.wizsprinter.wiz_sprinter import Coroutine, upgrade_clients
-from wizwalker.extensions.wizsprinter.wiz_navigator import toZone
-from wizwalker.extensions.scripting.deck_builder import DeckBuilder
-from src.teleport_math import navmap_tp, calc_Distance
-from src.deck_encoder import DeckEncoderDecoder
-
-from wizwalker.extensions.scripting.utils import _maybe_get_named_window, _cycle_to_online_friends, _click_on_friend, _friend_list_entry
-from src.utils import _cycle_friends_list
-
-from .tokenizer import *
-from .parser import *
-from .ir import *
-
-from src.drop_logger import get_chat, filter_drops, find_new_stuff
-from src.auto_pet import dancedance
-from src.dance_game_hook import attempt_activate_dance_hook
-from src.utils import is_visible_by_path, is_free, get_window_from_path, refill_potions, refill_potions_if_needed \
-                    , logout_and_in, click_window_by_path, get_quest_name
-from src.command_parser import teleport_to_friend_from_list
-from src.config_combat import delegate_combat_configs, default_config
+from asyncio import Task as AsyncTask
+from asyncio import TaskGroup
 
 from loguru import logger
+from wizwalker import (
+    XYZ,
+    AddressOutOfRange,
+    Client,
+    Keycode,
+    MemoryReadError,
+    Primitive,
+)
+from wizwalker.extensions.scripting.deck_builder import DeckBuilder
+from wizwalker.extensions.scripting.utils import (
+    _click_on_friend,
+    _cycle_to_online_friends,
+    _friend_list_entry,
+    _maybe_get_named_window,
+)
+from wizwalker.extensions.wizsprinter import SprintyClient
+from wizwalker.extensions.wizsprinter.wiz_navigator import toZone
+from wizwalker.extensions.wizsprinter.wiz_sprinter import Coroutine, upgrade_clients
+from wizwalker.memory import DynamicClientObject
+from wizwalker.memory.memory_objects.quest_data import GoalData, QuestData
+
+from src.auto_pet import dancedance
+from src.command_parser import teleport_to_friend_from_list
+from src.config_combat import default_config, delegate_combat_configs
+from src.deck_encoder import DeckEncoderDecoder
+from src.drop_logger import filter_drops, find_new_stuff, get_chat
+from src.teleport_math import calc_Distance, navmap_tp
+from src.utils import (
+    _cycle_friends_list,
+    click_window_by_path,
+    get_quest_name,
+    get_window_from_path,
+    is_free,
+    is_visible_by_path,
+    logout_and_in,
+    refill_potions,
+    refill_potions_if_needed,
+)
+
+from .ir import *
+from .parser import *
+from .tokenizer import *
+
 
 class Task:
     def __init__(self, stack=None, ip=0):
         self.stack = stack or []
         self.ip = ip
         self.running = True  # Task is active unless marked otherwise
-        self.waitfor:AsyncTask|None = None
+        self.waitfor: AsyncTask | None = None
+
 
 class Scheduler:
     def __init__(self):
         # a task represents a stack
-        self.tasks:list[Task] = []
+        self.tasks: list[Task] = []
         self.current_task_index = 0
 
     def add_task(self, task):
@@ -69,24 +89,22 @@ class UntilInfo:
 
 class VM:
     def __init__(self, clients: list[Client]):
-        self._clients = upgrade_clients(clients) # guarantee it's usable
+        self._clients = upgrade_clients(clients)  # guarantee it's usable
         self.program: list[Instruction] = []
         self.running = False
         self.killed = False
         self._scheduler = Scheduler()
         self._scheduler.add_task(Task())
         self.current_task = self._scheduler.get_current_task()
-        self._any_player_client = [] # Using this to store the client(s) that satisfied the condition of any player
+        self._any_player_client = (
+            []
+        )  # Using this to store the client(s) that satisfied the condition of any player
         self._timers = {}
-        self.logged_data = {
-            'goal': {},
-            'quest': {},
-            'zone': {}
-        }
+        self.logged_data = {"goal": {}, "quest": {}, "zone": {}}
         self._constants = {
-            'True': True,
-            'False': False,
-        } 
+            "True": True,
+            "False": False,
+        }
 
         # Every until loop condition must be checked for every vm step.
         # Once a condition becomes True, all untils that were entered later must be exited and removed.
@@ -103,15 +121,10 @@ class VM:
         self._timers = {}
         self._any_player_client = []
         self._constants = {
-            'True': True,
-            'False': False,
+            "True": True,
+            "False": False,
         }
-        self.logged_data = {
-            'goal': {},
-            'quest': {},
-            'zone': {}
-        }
-
+        self.logged_data = {"goal": {}, "quest": {}, "zone": {}}
 
     def stop(self):
         self.running = False
@@ -120,7 +133,6 @@ class VM:
         self.stop()
         self.killed = True
 
-    
     async def define_constant(self, name, value):
         # Special handling for Keycode constants
         if isinstance(value, str) and hasattr(Keycode, value):
@@ -130,14 +142,14 @@ class VM:
     def load_from_text(self, code: str):
         compiler = Compiler.from_text(code)
         self.program = compiler.compile()
-        #self.program = self.test_program
+        # self.program = self.test_program
 
     def player_by_num(self, num: int) -> SprintyClient:
         i = num - 1
         if i >= len(self._clients):
             return None
-            #tail = "client is open" if len(self._clients) == 1 else "clients are open"
-            #raise VMError(f"Attempted to get client {num}, but only {len(self._clients)} {tail}")
+            # tail = "client is open" if len(self._clients) == 1 else "clients are open"
+            # raise VMError(f"Attempted to get client {num}, but only {len(self._clients)} {tail}")
         return self._clients[i]
 
     async def select_friend_from_list(self, client: SprintyClient, name: str):
@@ -149,7 +161,9 @@ class VM:
                 if not await friends_window.is_visible():
                     raise ValueError("Friends list not visible")
             except ValueError:
-                friend_button = await _maybe_get_named_window(client.root_window, "btnFriends")
+                friend_button = await _maybe_get_named_window(
+                    client.root_window, "btnFriends"
+                )
                 await client.mouse_handler.click_window(friend_button)
                 await asyncio.sleep(0.4)
                 friends_window = await _maybe_get_named_window(
@@ -158,18 +172,20 @@ class VM:
 
             await _cycle_to_online_friends(client, friends_window)
 
-            friends_list_window = await _maybe_get_named_window(friends_window, "listFriends")
-            
+            friends_list_window = await _maybe_get_named_window(
+                friends_window, "listFriends"
+            )
+
             right_button = await _maybe_get_named_window(friends_window, "btnArrowDown")
             page_number = await _maybe_get_named_window(friends_window, "PageNumber")
-            
+
             page_number_text = await page_number.maybe_text()
             current_page, _ = map(
                 int,
                 page_number_text.replace("<center>", "")
-                    .replace("</center>", "")
-                    .replace(" ", "")
-                    .split("/"),
+                .replace("</center>", "")
+                .replace(" ", "")
+                .split("/"),
             )
 
             # Find and select the friend
@@ -189,8 +205,9 @@ class VM:
 
             # Click on the friend to select them
             await _click_on_friend(client, friends_list_window, friend_index)
-            
+
             return True
+
     def _select_players(self, selector: PlayerSelector) -> list[SprintyClient]:
         if selector.mass:
             return self._clients
@@ -211,14 +228,16 @@ class VM:
                     if client:  # Only add the client if it exists
                         result.append(client)
             return result
-            
+
     async def _fetch_tracked_quest(self, client: SprintyClient) -> QuestData:
         tracked_id = await client.quest_id()
         qm = await client.quest_manager()
         for quest_id, quest in (await qm.quest_data()).items():
             if quest_id == tracked_id:
                 return quest
-        raise VMError(f"Unable to fetch the currently tracked quest for client with title {client.title}")
+        raise VMError(
+            f"Unable to fetch the currently tracked quest for client with title {client.title}"
+        )
 
     async def _fetch_tracked_quest_text(self, client: SprintyClient) -> str:
         quest = await self._fetch_tracked_quest(client)
@@ -243,42 +262,42 @@ class VM:
 
     async def _fetch_tracked_goal_text(self, client: SprintyClient) -> str:
         goal_txt = await get_quest_name(client)
-        goal_txt = re.sub(r'<[^>]*>', '', goal_txt)
-        if '(' in goal_txt:
-            goal_txt = goal_txt[:goal_txt.find("(")]
+        goal_txt = re.sub(r"<[^>]*>", "", goal_txt)
+        if "(" in goal_txt:
+            goal_txt = goal_txt[: goal_txt.find("(")]
         return goal_txt.lower().strip()
 
     async def _check_drops(self, client: SprintyClient, item_name: str) -> bool:
         chat_text = await get_chat(client)
         if not chat_text:
             return False
-            
-        drops = filter_drops(chat_text.split('\n'))
 
-        if not hasattr(client, '_last_chat_state'):
-            client._last_chat_state = ''
-        
-        new_chat_content = find_new_stuff(client._last_chat_state, '\n'.join(drops))
-        client._last_chat_state = '\n'.join(drops)
-        
+        drops = filter_drops(chat_text.split("\n"))
+
+        if not hasattr(client, "_last_chat_state"):
+            client._last_chat_state = ""
+
+        new_chat_content = find_new_stuff(client._last_chat_state, "\n".join(drops))
+        client._last_chat_state = "\n".join(drops)
+
         # If there are no new drops, return False
         if not new_chat_content:
             return False
-        
+
         # Check if any new drops match the item_name
-        new_drops = new_chat_content.split('\n')
+        new_drops = new_chat_content.split("\n")
         for drop in new_drops:
             if drop and item_name.lower() in drop.lower():
                 logger.debug(f"Found new dropped item matching '{item_name}': {drop}")
                 return True
-                        
+
         return False
-    
+
     async def _check_duel_round(self, client: SprintyClient) -> int:
         try:
             if not await client.in_battle():
                 return 0
-                
+
             duel = client.duel
             if duel:
                 current_round = await duel.round_num()
@@ -287,11 +306,11 @@ class VM:
         except Exception as e:
             logger.error(f"Error getting duel round: {e}")
             return 0
-    
+
     async def _extract_data_info(self, data):
         if isinstance(data, str):
             # Check if this is a constant reference (starts with $)
-            if data.startswith('$'):
+            if data.startswith("$"):
                 const_name = data[1:]
                 if const_name in self._constants:
                     return self._constants[const_name]
@@ -299,9 +318,9 @@ class VM:
                     logger.warning(f"Constant '{const_name}' not found")
                     return data
             return data
-        elif hasattr(data, 'string'):
+        elif hasattr(data, "string"):
             # Check if string expression is a constant reference
-            if data.string.startswith('$'):
+            if data.string.startswith("$"):
                 const_name = data.string[1:]
                 if const_name in self._constants:
                     return self._constants[const_name]
@@ -309,10 +328,10 @@ class VM:
                     logger.warning(f"Constant '{const_name}' not found")
                     return data.string
             return data.string
-        elif hasattr(data, 'ident'):
+        elif hasattr(data, "ident"):
             ident = data.ident
             # First check if this is a constant reference
-            if ident.startswith('$'):
+            if ident.startswith("$"):
                 const_name = ident[1:]
                 if const_name in self._constants:
                     return self._constants[const_name]
@@ -330,7 +349,7 @@ class VM:
                     return ident
         elif isinstance(data, list) and all(isinstance(item, str) for item in data):
             return "/".join(data)
-            
+
         # For any other expression type, try to evaluate it
         else:
             try:
@@ -348,161 +367,174 @@ class VM:
 
         assert type(expression.command.data[0]) is ExprKind
 
-
         selector = expression.command.player_selector
         assert selector is not None
         clients = self._select_players(selector)
-        
+
         # If no clients match the selector and it's not an any_player selector, return False
         if not clients and not selector.any_player:
             return False
-        
+
         match expression.command.data[0]:
             case ExprKind.constant_check:
                 constant_name = expression.command.data[1]
                 expected_value = expression.command.data[2]
-                
+
                 if constant_name in self._constants:
-                    actual_value = self._constants[constant_name] 
+                    actual_value = self._constants[constant_name]
                     # Handle string representations of booleans
-                    if isinstance(expected_value, bool) and isinstance(actual_value, str):
+                    if isinstance(expected_value, bool) and isinstance(
+                        actual_value, str
+                    ):
                         if actual_value.lower() == "true":
                             actual_value = True
                         elif actual_value.lower() == "false":
                             actual_value = False
-                    
+
                     return actual_value == expected_value
                 return False
-            
+
             case ExprKind.zone_changed:
                 expected_zone = None
                 if len(expression.command.data) > 1:
-                    expected_zone = await self._extract_data_info(expression.command.data[1])
-                
+                    expected_zone = await self._extract_data_info(
+                        expression.command.data[1]
+                    )
+
                 if selector.any_player:
                     self._any_player_client = []
                     found_any = False
-                    
+
                     for client in self._clients:
                         current_zone = await client.zone_name()
-                        last_zone = self.logged_data['zone'].get(client.title, None)
-                        
+                        last_zone = self.logged_data["zone"].get(client.title, None)
+
                         if current_zone is None:
                             continue
-                            
+
                         if expected_zone:
                             if current_zone.lower() == expected_zone.lower():
                                 self._any_player_client.append(client)
-                                self.logged_data['zone'][client.title] = current_zone
+                                self.logged_data["zone"][client.title] = current_zone
                                 found_any = True
                         else:
                             if last_zone is None:
-                                self.logged_data['zone'][client.title] = current_zone.lower()
+                                self.logged_data["zone"][
+                                    client.title
+                                ] = current_zone.lower()
                             elif current_zone.lower() != last_zone.lower():
                                 self._any_player_client.append(client)
-                                self.logged_data['zone'][client.title] = current_zone.lower()
+                                self.logged_data["zone"][
+                                    client.title
+                                ] = current_zone.lower()
                                 found_any = True
-                                
+
                     return found_any
                 else:
                     all_valid = True
-                    
+
                     for client in clients:
                         current_zone = await client.zone_name()
-                        last_zone = self.logged_data['zone'].get(client.title, None)
-                        
+                        last_zone = self.logged_data["zone"].get(client.title, None)
+
                         if current_zone is None:
                             all_valid = False
                             if not expected_zone:
                                 continue
                             else:
                                 break
-                                
+
                         if expected_zone:
                             if current_zone.lower() != expected_zone.lower():
                                 all_valid = False
                                 break
-                            self.logged_data['zone'][client.title] = current_zone
+                            self.logged_data["zone"][client.title] = current_zone
                         else:
                             if last_zone is None:
-                                self.logged_data['zone'][client.title] = current_zone.lower()
+                                self.logged_data["zone"][
+                                    client.title
+                                ] = current_zone.lower()
                                 all_valid = False
                             elif current_zone.lower() == last_zone.lower():
                                 all_valid = False
                             else:
-                                self.logged_data['zone'][client.title] = current_zone.lower()
-                                
+                                self.logged_data["zone"][
+                                    client.title
+                                ] = current_zone.lower()
+
                     return all_valid
             case ExprKind.goal_changed:
                 expected_goal = None
                 if len(expression.command.data) > 1:
-                    expected_goal = await self._extract_data_info(expression.command.data[1])
-                    
+                    expected_goal = await self._extract_data_info(
+                        expression.command.data[1]
+                    )
+
                     if expected_goal is None:
                         logger.error("Failed to extract goal name from expression")
                         return False
                     expected_goal = expected_goal.lower()
-                
+
                 if selector.any_player:
                     self._any_player_client = []
                     found_any = False
-                    
+
                     for client in self._clients:
                         current_goal = await self._fetch_tracked_goal_text(client)
                         if current_goal is not None:
                             current_goal = current_goal.lower()
-                        last_goal = self.logged_data['goal'].get(client.title, None)
-                        
+                        last_goal = self.logged_data["goal"].get(client.title, None)
+
                         if expected_goal:
                             if current_goal == expected_goal:
                                 self._any_player_client.append(client)
-                                self.logged_data['goal'][client.title] = current_goal
+                                self.logged_data["goal"][client.title] = current_goal
                                 found_any = True
                         else:
                             if last_goal is None:
-                                self.logged_data['goal'][client.title] = current_goal
+                                self.logged_data["goal"][client.title] = current_goal
                             elif current_goal != last_goal:
                                 self._any_player_client.append(client)
-                                self.logged_data['goal'][client.title] = current_goal
+                                self.logged_data["goal"][client.title] = current_goal
                                 found_any = True
-                                
+
                     return found_any
                 else:
                     all_valid = True
-                    
+
                     for client in clients:
                         current_goal = await self._fetch_tracked_goal_text(client)
                         if current_goal is not None:
                             current_goal = current_goal.lower()
-                        last_goal = self.logged_data['goal'].get(client.title, None)
-                        
+                        last_goal = self.logged_data["goal"].get(client.title, None)
+
                         if expected_goal:
                             if current_goal != expected_goal:
                                 all_valid = False
                                 break
-                            self.logged_data['goal'][client.title] = current_goal
+                            self.logged_data["goal"][client.title] = current_goal
                         else:
                             if last_goal is None:
-                                self.logged_data['goal'][client.title] = current_goal
+                                self.logged_data["goal"][client.title] = current_goal
                                 all_valid = False
                             elif current_goal == last_goal:
                                 all_valid = False
                             else:
-                                self.logged_data['goal'][client.title] = current_goal
-                                
+                                self.logged_data["goal"][client.title] = current_goal
+
                     return all_valid
 
             case ExprKind.quest_changed:
                 if len(expression.command.data) > 1:
                     quest_data = expression.command.data[1]
                     expected_quest = await self._extract_data_info(quest_data)
-                    
+
                     if expected_quest is None:
                         logger.error("Failed to extract quest name from expression")
                         return False
-                    
+
                     expected_quest = expected_quest.lower()
-                    
+
                     if selector.any_player:
                         self._any_player_client = []
                         found_any = False
@@ -510,11 +542,15 @@ class VM:
                             current_quest = await self._fetch_tracked_quest_text(client)
                             if current_quest is not None:
                                 current_quest = current_quest.lower()
-                            last_quest = self.logged_data['quest'].get(client.title, None)
-                            
-                            if current_quest == expected_quest and (last_quest is None or current_quest != last_quest):
+                            last_quest = self.logged_data["quest"].get(
+                                client.title, None
+                            )
+
+                            if current_quest == expected_quest and (
+                                last_quest is None or current_quest != last_quest
+                            ):
                                 self._any_player_client.append(client)
-                                self.logged_data['quest'][client.title] = current_quest
+                                self.logged_data["quest"][client.title] = current_quest
                                 found_any = True
                         return found_any
                     else:
@@ -523,13 +559,17 @@ class VM:
                             current_quest = await self._fetch_tracked_quest_text(client)
                             if current_quest is not None:
                                 current_quest = current_quest.lower()
-                            last_quest = self.logged_data['quest'].get(client.title, None)
-                            
-                            if current_quest != expected_quest or (last_quest is not None and current_quest == last_quest):
+                            last_quest = self.logged_data["quest"].get(
+                                client.title, None
+                            )
+
+                            if current_quest != expected_quest or (
+                                last_quest is not None and current_quest == last_quest
+                            ):
                                 all_match = False
                                 break
-                            
-                            self.logged_data['quest'][client.title] = current_quest
+
+                            self.logged_data["quest"][client.title] = current_quest
                         return all_match
                 else:
                     if selector.any_player:
@@ -539,13 +579,15 @@ class VM:
                             current_quest = await self._fetch_tracked_quest_text(client)
                             if current_quest is not None:
                                 current_quest = current_quest.lower()
-                            last_quest = self.logged_data['quest'].get(client.title, None)
-                            
+                            last_quest = self.logged_data["quest"].get(
+                                client.title, None
+                            )
+
                             if last_quest is None:
-                                self.logged_data['quest'][client.title] = current_quest
+                                self.logged_data["quest"][client.title] = current_quest
                             elif current_quest != last_quest:
                                 self._any_player_client.append(client)
-                                self.logged_data['quest'][client.title] = current_quest
+                                self.logged_data["quest"][client.title] = current_quest
                                 found_any = True
                         return found_any
                     else:
@@ -554,19 +596,23 @@ class VM:
                             current_quest = await self._fetch_tracked_quest_text(client)
                             if current_quest is not None:
                                 current_quest = current_quest.lower()
-                            last_quest = self.logged_data['quest'].get(client.title, None)
-                            
+                            last_quest = self.logged_data["quest"].get(
+                                client.title, None
+                            )
+
                             if last_quest is None:
-                                self.logged_data['quest'][client.title] = current_quest
+                                self.logged_data["quest"][client.title] = current_quest
                                 all_changed = False
                             elif current_quest == last_quest:
                                 all_changed = False
                             else:
-                                self.logged_data['quest'][client.title] = current_quest
+                                self.logged_data["quest"][client.title] = current_quest
                         return all_changed
 
             case ExprKind.duel_round:
-                expected_round = await self._extract_data_info(expression.command.data[1])
+                expected_round = await self._extract_data_info(
+                    expression.command.data[1]
+                )
                 if selector.any_player:
                     self._any_player_client = []
                     found_any = False
@@ -585,7 +631,7 @@ class VM:
             case ExprKind.items_dropped:
                 item_name = await self._extract_data_info(expression.command.data[1])
                 assert type(item_name) == str
-                
+
                 if selector.any_player:
                     self._any_player_client = []
                     found_any = False
@@ -643,7 +689,9 @@ class VM:
                         elif not await window.is_control_grayed():
                             return False
                     return True
-            case ExprKind.in_range: # NOTE: if client is playing as pet, they are counted as an entity
+            case (
+                ExprKind.in_range
+            ):  # NOTE: if client is playing as pet, they are counted as an entity
                 data = [await c.client_object.global_id_full() for c in clients]
                 target = await self._extract_data_info(expression.command.data[1])
                 if selector.any_player:
@@ -654,11 +702,16 @@ class VM:
                         for entity in entities:
                             entity_name = await entity.object_name()
                             entity_gid = await entity.global_id_full()
-                            
-                            if entity_gid in data: continue
-                            if not entity_name: continue
+
+                            if entity_gid in data:
+                                continue
+                            if not entity_name:
+                                continue
                             # Check if target is a substring of entity_name
-                            if target.lower() in entity_name.lower() or entity_name.lower() == target.lower():
+                            if (
+                                target.lower() in entity_name.lower()
+                                or entity_name.lower() == target.lower()
+                            ):
                                 self._any_player_client.append(client)
                                 found_any = True
                                 break
@@ -671,10 +724,15 @@ class VM:
                             entity_name = await entity.object_name()
                             entity_gid = await entity.global_id_full()
 
-                            if entity_gid in data: continue
-                            if not entity_name: continue
+                            if entity_gid in data:
+                                continue
+                            if not entity_name:
+                                continue
                             # Check if target is a substring of entity_name
-                            if target.lower() in entity_name.lower() or entity_name.lower() == target.lower(): 
+                            if (
+                                target.lower() in entity_name.lower()
+                                or entity_name.lower() == target.lower()
+                            ):
                                 found = True
                         if not found:
                             return False
@@ -689,9 +747,9 @@ class VM:
                         idx = 0
                         while idx < len(data):
                             entity_gid = await entity.global_id_full()
-                            if data[idx]==entity_gid:
+                            if data[idx] == entity_gid:
                                 found += 1
-                            idx+=1
+                            idx += 1
                     if found != target:
                         return False
                 return True
@@ -702,7 +760,9 @@ class VM:
                     found_any = False
                     for client in self._clients:
                         zone = await client.zone_name()
-                        expected = await self._extract_data_info(expression.command.data[1])
+                        expected = await self._extract_data_info(
+                            expression.command.data[1]
+                        )
                         if expected == zone:
                             self._any_player_client.append(client)
                             found_any = True
@@ -710,7 +770,9 @@ class VM:
                 else:
                     for client in clients:
                         zone = await client.zone_name()
-                        expected = await self._extract_data_info(expression.command.data[1])
+                        expected = await self._extract_data_info(
+                            expression.command.data[1]
+                        )
                         if expected != zone:
                             return False
                     return True
@@ -749,11 +811,13 @@ class VM:
                 for client in clients[1:]:
                     pos = await client.body.position()
                     distance = calc_Distance(expected_pos, pos)
-                    if distance > 5.0: 
+                    if distance > 5.0:
                         return False
                 return True
             case ExprKind.playercount:
-                expected_count = await self._extract_data_info(expression.command.data[1])
+                expected_count = await self._extract_data_info(
+                    expression.command.data[1]
+                )
 
                 if isinstance(expected_count, float):
                     expected_count = int(expected_count)
@@ -764,7 +828,9 @@ class VM:
                         raise ValueError(f"Invalid number '{expected_count}'")
                 return expected_count == len(self._clients)
             case ExprKind.tracking_quest:
-                expected_text = await self._extract_data_info(expression.command.data[1])
+                expected_text = await self._extract_data_info(
+                    expression.command.data[1]
+                )
                 assert type(expected_text) == str
                 if selector.any_player:
                     self._any_player_client = []
@@ -782,7 +848,9 @@ class VM:
                             return False
                     return True
             case ExprKind.tracking_goal:
-                expected_text = await self._extract_data_info(expression.command.data[1])
+                expected_text = await self._extract_data_info(
+                    expression.command.data[1]
+                )
                 assert type(expected_text) == str
                 if selector.any_player:
                     self._any_player_client = []
@@ -828,14 +896,19 @@ class VM:
                             return False
                     return True
             case ExprKind.has_quest:
-                expected_text = await self._extract_data_info(expression.command.data[1])
+                expected_text = await self._extract_data_info(
+                    expression.command.data[1]
+                )
                 assert type(expected_text) == str
                 if selector.any_player:
                     self._any_player_client = []
                     found_any = False
                     for client in self._clients:
                         for _, quest in await self._fetch_quests(client):
-                            if await self._fetch_quest_text(client, quest) == expected_text:
+                            if (
+                                await self._fetch_quest_text(client, quest)
+                                == expected_text
+                            ):
                                 self._any_player_client.append(client)
                                 found_any = True
                                 break
@@ -844,7 +917,10 @@ class VM:
                     for client in clients:
                         found = False
                         for _, quest in await self._fetch_quests(client):
-                            if await self._fetch_quest_text(client, quest) == expected_text:
+                            if (
+                                await self._fetch_quest_text(client, quest)
+                                == expected_text
+                            ):
                                 found = True
                                 break
                         if not found:
@@ -865,7 +941,7 @@ class VM:
                             return False
                     return True
             case ExprKind.has_xyz:
-                target_pos: XYZ = await self._extract_data_info(expression.command.data[1]) # type: ignore
+                target_pos: XYZ = await self._extract_data_info(expression.command.data[1])  # type: ignore
 
                 if not isinstance(target_pos, XYZ):
                     raise ValueError(f"Invalid XYZ value '{target_pos}'")
@@ -885,7 +961,7 @@ class VM:
                             return False
                     return True
             case ExprKind.has_yaw:
-                target_yaw: float = await self._extract_data_info(expression.command.data[1]) # type: ignore
+                target_yaw: float = await self._extract_data_info(expression.command.data[1])  # type: ignore
 
                 if not isinstance(target_yaw, float):
                     raise ValueError(f"Invalid yaw value '{target_yaw}'")
@@ -933,39 +1009,49 @@ class VM:
 
                 if constant_name in self._constants:
                     actual_value = self._constants[constant_name]
-                    if isinstance(expected_value, bool) and isinstance(actual_value, str):
+                    if isinstance(expected_value, bool) and isinstance(
+                        actual_value, str
+                    ):
                         if actual_value.lower() == "true":
                             actual_value = True
                         elif actual_value.lower() == "false":
                             actual_value = False
-                    
+
                     return actual_value == expected_value
                 return False
             case RangeMinExpression():
                 range_value = await self.eval(expression.range_expr, client)
                 if isinstance(range_value, str):
                     try:
-                        min_val, _ = map(float, range_value.split('-'))
+                        min_val, _ = map(float, range_value.split("-"))
                         return min_val
                     except ValueError:
-                        raise VMError(f"Invalid range format: {range_value}. Expected format like '1-100'")
+                        raise VMError(
+                            f"Invalid range format: {range_value}. Expected format like '1-100'"
+                        )
                 else:
-                    raise VMError(f"Range expression must evaluate to a string, got {range_value}")
-                    
+                    raise VMError(
+                        f"Range expression must evaluate to a string, got {range_value}"
+                    )
+
             case RangeMaxExpression():
                 range_value = await self.eval(expression.range_expr, client)
                 if isinstance(range_value, str):
                     try:
-                        _, max_val = map(float, range_value.split('-'))
+                        _, max_val = map(float, range_value.split("-"))
                         return max_val
                     except ValueError:
-                        raise VMError(f"Invalid range format: {range_value}. Expected format like '1-100'")
+                        raise VMError(
+                            f"Invalid range format: {range_value}. Expected format like '1-100'"
+                        )
                 else:
-                    raise VMError(f"Range expression must evaluate to a string, got {range_value}")
+                    raise VMError(
+                        f"Range expression must evaluate to a string, got {range_value}"
+                    )
             case IndexAccessExpression():
                 container = await self.eval(expression.expr, client)
                 index = await self.eval(expression.index, client)
-                
+
                 if isinstance(container, list) and isinstance(index, (int, float)):
                     index_int = int(index)
                     if 0 <= index_int < len(container):
@@ -992,25 +1078,29 @@ class VM:
                 return expression.number
             case XYZExpression():
                 return XYZ(
-                    await self.eval(expression.x, client), # type: ignore
-                    await self.eval(expression.y, client), # type: ignore
-                    await self.eval(expression.z, client), # type: ignore
+                    await self.eval(expression.x, client),  # type: ignore
+                    await self.eval(expression.y, client),  # type: ignore
+                    await self.eval(expression.z, client),  # type: ignore
                 )
             case UnaryExpression():
                 match expression.operator.kind:
                     case TokenKind.minus:
                         result = await self.eval(expression.expr, client)
-                        return -result # type: ignore
+                        return -result  # type: ignore
                     case TokenKind.keyword_not:
                         # First evaluate the expression to populate _any_player_client
                         expr_result = await self.eval(expression.expr, client)
-                        
-                        if (isinstance(expression.expr, CommandExpression) and 
-                            expression.expr.command.player_selector.any_player):
+
+                        if (
+                            isinstance(expression.expr, CommandExpression)
+                            and expression.expr.command.player_selector.any_player
+                        ):
                             # Invert the selection - clients that didn't match become the new matches
                             current_matches = self._any_player_client.copy()
-                            self._any_player_client = [c for c in self._clients if c not in current_matches]
-                        
+                            self._any_player_client = [
+                                c for c in self._clients if c not in current_matches
+                            ]
+
                         # Return negated result
                         return not expr_result
                     case _:
@@ -1037,22 +1127,22 @@ class VM:
                     left = left[0]
                 if isinstance(right, list) and len(right) > 0:
                     right = right[0]
-                    
+
                 return left == right
             case DivideExpression():
                 left = await self.eval(expression.lhs, client)
                 right = await self.eval(expression.rhs, client)
-                return (left / right) # type: ignore
+                return left / right  # type: ignore
             case GreaterExpression():
                 left = await self.eval(expression.lhs, client)
                 right = await self.eval(expression.rhs, client)
                 if isinstance(left, list) and len(left) > 0:
-                    left = left[0] 
+                    left = left[0]
                 if isinstance(right, list) and len(right) > 0:
-                    right = right[0] 
-                return (left > right)
+                    right = right[0]
+                return left > right
             case Eval():
-                return await self._eval_expression(expression, client) #type: ignore
+                return await self._eval_expression(expression, client)  # type: ignore
             case SelectorGroup():
                 players = self._select_players(expression.players)
                 expr = expression.expr
@@ -1064,7 +1154,7 @@ class VM:
                         if result:
                             self._any_player_client.append(anyplayer)
                             found_any = True
-                    
+
                     return found_any
                 else:
                     for player in players:
@@ -1073,7 +1163,7 @@ class VM:
                     return True
             case ReadVarExpr():
                 loc = await self.eval(expression.loc)
-                assert(loc != None and type(loc) == int)
+                assert loc != None and type(loc) == int
                 test = self.current_task.stack[loc]
                 return test
             case StackLocExpression():
@@ -1081,40 +1171,52 @@ class VM:
             case SubExpression():
                 lhs = await self.eval(expression.lhs, client)
                 rhs = await self.eval(expression.rhs, client)
-                assert(isinstance(lhs, (int, float)))
-                assert(isinstance(rhs, (int, float)))
+                assert isinstance(lhs, (int, float))
+                assert isinstance(rhs, (int, float))
                 return lhs - rhs
-            
+
             case ListExpression():
                 result = []
-                
-                if hasattr(expression, 'items') and isinstance(expression.items, list):
+
+                if hasattr(expression, "items") and isinstance(expression.items, list):
                     for item in expression.items:
                         evaluated_item = await self.eval(item, client)
                         if isinstance(evaluated_item, list):
                             result.extend(evaluated_item)
                         else:
                             result.append(evaluated_item)
-                elif hasattr(expression, 'items') and isinstance(expression.items, ListExpression):
+                elif hasattr(expression, "items") and isinstance(
+                    expression.items, ListExpression
+                ):
                     inner_result = await self.eval(expression.items, client)
-                    result = inner_result if isinstance(inner_result, list) else [inner_result]
-                elif hasattr(expression, 'expr') and isinstance(expression.expr, ListExpression):
+                    result = (
+                        inner_result
+                        if isinstance(inner_result, list)
+                        else [inner_result]
+                    )
+                elif hasattr(expression, "expr") and isinstance(
+                    expression.expr, ListExpression
+                ):
                     inner_result = await self.eval(expression.expr, client)
-                    result = inner_result if isinstance(inner_result, list) else [inner_result]
-                elif hasattr(expression, 'expr'):
+                    result = (
+                        inner_result
+                        if isinstance(inner_result, list)
+                        else [inner_result]
+                    )
+                elif hasattr(expression, "expr"):
                     single_result = await self.eval(expression.expr, client)
                     result = [single_result]
-                
+
                 return result
             case ContainsStringExpression():
                 lhs = await self.eval(expression.lhs, client)
                 rhs = await self.eval(expression.rhs, client)
-                
+
                 if isinstance(rhs, list):
                     return any(item in lhs for item in rhs)
-                
+
                 # Original behavior for single string
-                return (rhs in lhs) #type: ignore
+                return rhs in lhs  # type: ignore
             case _:
                 raise VMError(f"Unimplemented expression type: {expression}")
 
@@ -1148,7 +1250,7 @@ class VM:
                 return await client.stats.base_gold_pouch()
             case EvalKind.windowtext:
                 path = eval.args[0]
-                assert(type(path) == list)
+                assert type(path) == list
                 try:
                     window = await get_window_from_path(client.root_window, path)
                     if window:
@@ -1165,13 +1267,13 @@ class VM:
                             return text.lower()
                         except (ValueError, MemoryReadError):
                             pass
-                    return "" # If window path doesn't exist or any other error occurs, return empty string
+                    return ""  # If window path doesn't exist or any other error occurs, return empty string
                 except Exception:
                     # If window path doesn't exist or any other error occurs, return empty string
                     return ""
             case EvalKind.windownum:
                 path = eval.args[0]
-                assert(type(path) == list)
+                assert type(path) == list
                 try:
                     window = await get_window_from_path(client.root_window, path)
                     if window:
@@ -1179,11 +1281,15 @@ class VM:
                             text = await window.maybe_text()
                             if text:
                                 # If there's a slash, extract both parts as separate numbers
-                                if '/' in text:
-                                    parts = text.split('/')
+                                if "/" in text:
+                                    parts = text.split("/")
                                     result = []
                                     for part in parts:
-                                        numeric_text = ''.join(c for c in part if c.isdigit() or c == '.' or c == '-')
+                                        numeric_text = "".join(
+                                            c
+                                            for c in part
+                                            if c.isdigit() or c == "." or c == "-"
+                                        )
                                         if numeric_text:
                                             result.append(float(numeric_text))
                                         else:
@@ -1195,7 +1301,11 @@ class VM:
                                     return 0.0
                                 else:
                                     # Extract numeric value from the whole text
-                                    numeric_text = ''.join(c for c in text if c.isdigit() or c == '.' or c == '-')
+                                    numeric_text = "".join(
+                                        c
+                                        for c in text
+                                        if c.isdigit() or c == "." or c == "-"
+                                    )
                                     if numeric_text:
                                         # For single values, return as a single-item list for consistency
                                         return [float(numeric_text)]
@@ -1206,22 +1316,30 @@ class VM:
                         # retry with the less reliable offset that is only defined for control elements
                         try:
                             text = await window.read_wide_string_from_offset(616)
-                            if '/' in text:
-                                parts = text.split('/')
+                            if "/" in text:
+                                parts = text.split("/")
                                 result = []
                                 for part in parts:
-                                    numeric_text = ''.join(c for c in part if c.isdigit() or c == '.' or c == '-')
+                                    numeric_text = "".join(
+                                        c
+                                        for c in part
+                                        if c.isdigit() or c == "." or c == "-"
+                                    )
                                     if numeric_text:
                                         result.append(float(numeric_text))
                                     else:
                                         result.append(0.0)
-                                
+
                                 if len(result) > 0:
                                     # Return the list for indexed access
                                     return result
                                 return 0.0
                             else:
-                                numeric_text = ''.join(c for c in text if c.isdigit() or c == '.' or c == '-')
+                                numeric_text = "".join(
+                                    c
+                                    for c in text
+                                    if c.isdigit() or c == "." or c == "-"
+                                )
                                 if numeric_text:
                                     return [float(numeric_text)]
                                 return [0.0]
@@ -1237,7 +1355,11 @@ class VM:
             case EvalKind.max_potioncount:
                 return await client.stats.potion_max()
             case EvalKind.any_player_list:
-                return [c.title for c in self._any_player_client] if self._any_player_client else [self._clients[0].title]
+                return (
+                    [c.title for c in self._any_player_client]
+                    if self._any_player_client
+                    else [self._clients[0].title]
+                )
 
     async def exec_deimos_call(self, instruction: Instruction):
         assert instruction.kind == InstructionKind.deimos_call
@@ -1247,18 +1369,17 @@ class VM:
         if selector.any_player and self._any_player_client:
             clients = self._any_player_client
         elif selector.any_player:
-            clients = [] 
+            clients = []
             for client in self._clients:
                 clients = [client]  # Use the first client found
                 break
         else:
             clients = self._select_players(selector)
-        
+
         # Skip execution if no valid clients were selected
         if not clients:
             return
 
-        
         async def eval_arg(arg, client):
             if isinstance(arg, Expression):
                 if isinstance(arg, IdentExpression):
@@ -1266,65 +1387,77 @@ class VM:
                     if constant_name in self._constants:
                         return self._constants[constant_name]
                     else:
-                        #logger.error(f"Undefined constant referenced by IdentExpression: ${constant_name}")
-                        return constant_name  
+                        # logger.error(f"Undefined constant referenced by IdentExpression: ${constant_name}")
+                        return constant_name
                 return await self.eval(arg, client)
-            elif isinstance(arg, str) and arg.startswith('$'):
+            elif isinstance(arg, str) and arg.startswith("$"):
                 constant_name = arg[1:]  # Remove the $ prefix
                 if constant_name in self._constants:
                     return self._constants[constant_name]
                 else:
                     logger.error(f"Undefined constant: {arg}")
-                    return arg 
+                    return arg
             return arg
 
         # TODO: is eval always fast enough to run in order during a TaskGroup
-        match instruction.data[1]:     
+        match instruction.data[1]:
             case "set_zone":
                 for client in clients:
                     zone_name = await client.zone_name()
-                    self.logged_data['zone'][client.title] = zone_name
+                    self.logged_data["zone"][client.title] = zone_name
                     logger.debug(f"Client {client.title}: Current zone: {zone_name}")
             case "set_goal":
                 for client in clients:
                     current_goal = await self._fetch_tracked_goal_text(client)
-                    self.logged_data['goal'][client.title] = current_goal
+                    self.logged_data["goal"][client.title] = current_goal
                     logger.debug(f"Client {client.title}: Current goal: {current_goal}")
             case "set_quest":
                 for client in clients:
                     current_quest = await self._fetch_tracked_quest_text(client)
-                    self.logged_data['quest'][client.title] = current_quest
-                    logger.debug(f"Client {client.title}: Current quest: {current_quest}")
+                    self.logged_data["quest"][client.title] = current_quest
+                    logger.debug(
+                        f"Client {client.title}: Current quest: {current_quest}"
+                    )
             case "autopet":
+
                 async def vm_play_dance_game(client: Client):
                     try:
                         logger.debug(f"Client {client.title}: Starting pet dance game.")
-                        logger.debug(f"Client {client.title}: Activating dance game hook")
-                        await attempt_activate_dance_hook(client)
+                        logger.debug(
+                            f"Client {client.title}: Activating dance game hook"
+                        )
 
                         await dancedance(client)
-                        
+
                         logger.debug(f"Client {client.title}: Finished pet dance game.")
                         return True
                     except Exception as e:
-                        logger.error(f"Error in pet play dance game for {client.title}: {e}")
+                        logger.error(
+                            f"Error in pet play dance game for {client.title}: {e}"
+                        )
                         return False
-                
+
                 # Create tasks for each client
                 tasks = []
                 for client in clients:
+
                     async def timeout_dance_game(client):
                         try:
-                            await asyncio.wait_for(vm_play_dance_game(client), timeout=60)
+                            await asyncio.wait_for(
+                                vm_play_dance_game(client), timeout=60
+                            )
                         except asyncio.TimeoutError:
-                            logger.error(f"Client {client.title}: Pet dance game timed out.")
+                            logger.error(
+                                f"Client {client.title}: Pet dance game timed out."
+                            )
                         return False
+
                     task = asyncio.create_task(timeout_dance_game(client))
                     tasks.append(task)
 
                 if tasks:
                     await asyncio.gather(*tasks)
-                    
+
                 logger.debug("All clients have finished pet dance game")
             case "teleport":
                 args = instruction.data[2]
@@ -1340,13 +1473,21 @@ class VM:
                             for client in clients:
                                 pluspos = await eval_arg(args[1], client)
                                 clientpos = await client.body.position()
-                                newpos = XYZ(clientpos.x + pluspos.x, clientpos.y + pluspos.y, clientpos.z + pluspos.z)
+                                newpos = XYZ(
+                                    clientpos.x + pluspos.x,
+                                    clientpos.y + pluspos.y,
+                                    clientpos.z + pluspos.z,
+                                )
                                 tg.create_task(client.teleport(newpos))
                         case TeleportKind.minusteleport:
                             for client in clients:
                                 minuspos = await eval_arg(args[1], client)
                                 clientpos = await client.body.position()
-                                newpos = XYZ(clientpos.x - minuspos.x, clientpos.y - minuspos.y, clientpos.z - minuspos.z)
+                                newpos = XYZ(
+                                    clientpos.x - minuspos.x,
+                                    clientpos.y - minuspos.y,
+                                    clientpos.z - minuspos.z,
+                                )
                                 tg.create_task(client.teleport(newpos))
                         case TeleportKind.entity_literal:
                             use_navmap = False
@@ -1355,8 +1496,9 @@ class VM:
                                 name = await eval_arg(args[-1], clients[0])
                             else:
                                 name = await eval_arg(args[-1], clients[0])
-                            
+
                             for client in clients:
+
                                 async def tp_to_entity(client):
                                     entity = await client.find_closest_by_name(name)
                                     if entity:
@@ -1365,6 +1507,7 @@ class VM:
                                             await navmap_tp(client, pos)
                                         else:
                                             await client.teleport(pos)
+
                                 tg.create_task(tp_to_entity(client))
                         case TeleportKind.entity_vague:
                             use_navmap = False
@@ -1373,16 +1516,20 @@ class VM:
                                 vague = await eval_arg(args[-1], clients[0])
                             else:
                                 vague = await eval_arg(args[-1], clients[0])
-                            
+
                             for client in clients:
+
                                 async def tp_to_vague_entity(client):
-                                    entity = await client.find_closest_by_vague_name(vague)
+                                    entity = await client.find_closest_by_vague_name(
+                                        vague
+                                    )
                                     if entity:
                                         pos = await entity.location()
                                         if use_navmap:
                                             await navmap_tp(client, pos)
                                         else:
                                             await client.teleport(pos)
+
                                 tg.create_task(tp_to_vague_entity(client))
                         case TeleportKind.mob:
                             for client in clients:
@@ -1393,22 +1540,29 @@ class VM:
                                 pos = await client.quest_position.position()
                                 tg.create_task(navmap_tp(client, pos))
                         case TeleportKind.friend_icon:
-                            async def proxy(client: SprintyClient): # type: ignore
+
+                            async def proxy(client: SprintyClient):  # type: ignore
                                 # probably doesn't need mouseless
                                 async with client.mouse_handler:
-                                    await teleport_to_friend_from_list(client, icon_list=2, icon_index=0)
+                                    await teleport_to_friend_from_list(
+                                        client, icon_list=2, icon_index=0
+                                    )
+
                             for client in clients:
                                 tg.create_task(proxy(client))
                         case TeleportKind.friend_name:
                             name = await eval_arg(args[-1], clients[0])
-                            if isinstance(name, str) and name.startswith('$'):
+                            if isinstance(name, str) and name.startswith("$"):
                                 constant_name = name[1:]
                                 if constant_name in self._constants:
                                     name = self._constants[constant_name]
-                            
-                            async def proxy(client: SprintyClient): # type: ignore
+
+                            async def proxy(client: SprintyClient):  # type: ignore
                                 async with client.mouse_handler:
-                                    await teleport_to_friend_from_list(client, name=name)
+                                    await teleport_to_friend_from_list(
+                                        client, name=name
+                                    )
+
                             for client in clients:
                                 tg.create_task(proxy(client))
                         case TeleportKind.client_num:
@@ -1448,8 +1602,10 @@ class VM:
                     method = method_map[args[0]]
                     async with asyncio.TaskGroup() as tg:
                         for client in clients:
-                            async def proxy(): # type: ignore
+
+                            async def proxy():  # type: ignore
                                 return await method(client)
+
                             tg.create_task(waitfor_impl(proxy))
                 else:
                     match args[0]:
@@ -1457,20 +1613,32 @@ class VM:
                             if completion:
                                 async with asyncio.TaskGroup() as tg:
                                     for client in clients:
-                                        tg.create_task(waitfor_coro(client.is_loading, True))
+                                        tg.create_task(
+                                            waitfor_coro(client.is_loading, True)
+                                        )
                             else:
                                 async with asyncio.TaskGroup() as tg:
                                     for client in clients:
                                         starting_zone = await client.zone_name()
+
                                         async def proxy():
-                                            return starting_zone != (await client.zone_name())
+                                            return starting_zone != (
+                                                await client.zone_name()
+                                            )
+
                                         tg.create_task(waitfor_coro(proxy, False))
                         case WaitforKind.window:
-                            window_path = await eval_arg(args[1], clients[0] if clients else None)
+                            window_path = await eval_arg(
+                                args[1], clients[0] if clients else None
+                            )
                             async with asyncio.TaskGroup() as tg:
                                 for client in clients:
+
                                     async def proxy():
-                                        return await is_visible_by_path(client, window_path)
+                                        return await is_visible_by_path(
+                                            client, window_path
+                                        )
+
                                     tg.create_task(waitfor_impl(proxy))
                         case _:
                             raise VMError(f"Unimplemented waitfor kind: {instruction}")
@@ -1479,29 +1647,38 @@ class VM:
                 async with asyncio.TaskGroup() as tg:
                     for client in clients:
                         key = await eval_arg(args[0], client)
-                        time = 0.1 if args[1] is None else await eval_arg(args[1], client)
+                        time = (
+                            0.1 if args[1] is None else await eval_arg(args[1], client)
+                        )
                         tg.create_task(client.send_key(key, time))
             case "usepotion":
                 args = instruction.data[2]
                 potion_tasks = []
-                
+
                 for client in clients:
                     if len(args) > 0:
                         health_num = await eval_arg(args[0], client)
                         mana_num = await eval_arg(args[1], client)
-                        
-                        async def _use_potion_if_needed(client, health_threshold, mana_threshold):
+
+                        async def _use_potion_if_needed(
+                            client, health_threshold, mana_threshold
+                        ):
                             async with client.mouse_handler:
-                                await client.use_potion_if_needed(int(health_threshold), int(mana_threshold))
-                        
-                        potion_tasks.append(_use_potion_if_needed(client, health_num, mana_num))
+                                await client.use_potion_if_needed(
+                                    int(health_threshold), int(mana_threshold)
+                                )
+
+                        potion_tasks.append(
+                            _use_potion_if_needed(client, health_num, mana_num)
+                        )
                     else:
+
                         async def _use_potion(client):
                             async with client.mouse_handler:
                                 await client.use_potion()
 
                         potion_tasks.append(_use_potion(client))
-                
+
                 if potion_tasks:
                     await asyncio.gather(*potion_tasks)
             case "buypotions":
@@ -1510,9 +1687,13 @@ class VM:
                 async with asyncio.TaskGroup() as tg:
                     for client in clients:
                         if ifneeded:
-                            tg.create_task(refill_potions_if_needed(client, mark=True, recall=True))
+                            tg.create_task(
+                                refill_potions_if_needed(client, mark=True, recall=True)
+                            )
                         else:
-                            tg.create_task(refill_potions(client, mark=True, recall=True))
+                            tg.create_task(
+                                refill_potions(client, mark=True, recall=True)
+                            )
             case "relog":
                 async with asyncio.TaskGroup() as tg:
                     for client in clients:
@@ -1523,70 +1704,103 @@ class VM:
                     for client in clients:
                         match args[0]:
                             case CursorKind.position:
-                                async def proxy(client: SprintyClient, x: float, y: float):
+
+                                async def proxy(
+                                    client: SprintyClient, x: float, y: float
+                                ):
                                     async with client.mouse_handler:
-                                            await client.mouse_handler.set_mouse_position(int(x), int(y))
+                                        await client.mouse_handler.set_mouse_position(
+                                            int(x), int(y)
+                                        )
+
                                 x = await eval_arg(args[1], client)
                                 y = await eval_arg(args[2], client)
                                 tg.create_task(proxy(client, x, y))
-                                await asyncio.sleep(.2)
+                                await asyncio.sleep(0.2)
                             case CursorKind.window:
                                 path = await eval_arg(args[1], client)
+
                                 async def proxy(client: SprintyClient, path: list):
-                                    window = await get_window_from_path(client.root_window, path)
+                                    window = await get_window_from_path(
+                                        client.root_window, path
+                                    )
                                     if window:
                                         async with client.mouse_handler:
-                                            await client.mouse_handler.set_mouse_position_to_window(window)
+                                            await client.mouse_handler.set_mouse_position_to_window(
+                                                window
+                                            )
+
                                 tg.create_task(proxy(client, path))
-                                await asyncio.sleep(.2)
+                                await asyncio.sleep(0.2)
             case "click":
                 args = instruction.data[2]
                 async with asyncio.TaskGroup() as tg:
                     for client in clients:
                         match args[0]:
                             case ClickKind.position:
-                                async def proxy(client: SprintyClient, x: float, y: float):
+
+                                async def proxy(
+                                    client: SprintyClient, x: float, y: float
+                                ):
                                     async with client.mouse_handler:
                                         await client.mouse_handler.click(int(x), int(y))
+
                                 x = await eval_arg(args[1], client)
                                 y = await eval_arg(args[2], client)
                                 tg.create_task(proxy(client, x, y))
                             case ClickKind.window:
                                 path = await eval_arg(args[1], client)
+
                                 async def proxy(client: SprintyClient, path: list):
                                     await click_window_by_path(client, path)
+
                                 tg.create_task(proxy(client, path))
                             case _:
-                                raise VMError(f"Unimplemented click kind: {instruction}")
+                                raise VMError(
+                                    f"Unimplemented click kind: {instruction}"
+                                )
             case "tozone":
                 args = instruction.data[2]
                 async with asyncio.TaskGroup() as tg:
                     for client in clients:
                         zone_path = await eval_arg(args[0], client)
-                        tg.create_task(toZone([client], "/".join(zone_path) if isinstance(zone_path, list) else zone_path))
+                        tg.create_task(
+                            toZone(
+                                [client],
+                                (
+                                    "/".join(zone_path)
+                                    if isinstance(zone_path, list)
+                                    else zone_path
+                                ),
+                            )
+                        )
             case "select_friend":
                 args = instruction.data[2]
-                friend_name = await eval_arg(args[0], clients[0]) if clients else args[0]
-                
+                friend_name = (
+                    await eval_arg(args[0], clients[0]) if clients else args[0]
+                )
+
                 async with asyncio.TaskGroup() as tg:
                     for client in clients:
-                        tg.create_task(self.select_friend_from_list(client, friend_name))
+                        tg.create_task(
+                            self.select_friend_from_list(client, friend_name)
+                        )
             case _:
                 raise VMError(f"Unimplemented deimos call: {instruction}")
 
     async def exec_compound_deimos_call(self, command_entries):
         tasks = []
-        
+
         for entry in command_entries:
             player_selector, command_name, command_data = entry
 
             instruction = Instruction(
                 kind=InstructionKind.deimos_call,
-                data=[player_selector, command_name, command_data]
+                data=[player_selector, command_name, command_data],
             )
 
             tasks.append(self.exec_deimos_call(instruction))
-        
+
         # Execute all commands in parallel
         await asyncio.gather(*tasks)
 
@@ -1615,7 +1829,7 @@ class VM:
             return
         await asyncio.sleep(0)
         self.current_task = self._scheduler.get_current_task()
-        await self._process_untils() # must run before the next instruction is fetched
+        await self._process_untils()  # must run before the next instruction is fetched
         if not self.current_task.running:
             self._scheduler.switch_task()
             return
@@ -1641,16 +1855,22 @@ class VM:
                 assert isinstance(instruction.data, str), "Timer name must be a string"
                 timer_name = instruction.data
                 if timer_name in self._timers:
-                    elapsed_seconds = asyncio.get_event_loop().time() - self._timers[timer_name]
+                    elapsed_seconds = (
+                        asyncio.get_event_loop().time() - self._timers[timer_name]
+                    )
                     hours, remainder = divmod(int(elapsed_seconds), 3600)
                     minutes, seconds = divmod(remainder, 60)
-                    
+
                     time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-                    
-                    logger.debug(f"Timer '{timer_name}' ended - Elapsed time: {time_str}")
+
+                    logger.debug(
+                        f"Timer '{timer_name}' ended - Elapsed time: {time_str}"
+                    )
                     del self._timers[timer_name]
                 else:
-                    logger.warning(f"Attempted to end timer '{timer_name}' that was never started")
+                    logger.warning(
+                        f"Attempted to end timer '{timer_name}' that was never started"
+                    )
                 self.current_task.ip += 1
             case InstructionKind.kill:
                 self._any_player_client = []
@@ -1662,7 +1882,7 @@ class VM:
 
                 if isinstance(time, (int, str)):
                     time = float(time)
-                
+
                 await asyncio.sleep(time)
                 self.current_task.ip += 1
             case InstructionKind.jump:
@@ -1678,7 +1898,9 @@ class VM:
                         self.current_task.ip += 1
                 except VMError:
                     if instruction.data[1] > 1:  # This is likely a while loop
-                        self.current_task.ip += instruction.data[1]  # Skip the entire scope
+                        self.current_task.ip += instruction.data[
+                            1
+                        ]  # Skip the entire scope
                     else:
                         self.current_task.ip += 1  # Just move to the next instruction
 
@@ -1691,36 +1913,44 @@ class VM:
                     else:
                         self.current_task.ip += instruction.data[1]
                 except VMError:
-                    self.current_task.ip += 1  # Move to the next instruction (skip the loop body)
+                    self.current_task.ip += (
+                        1  # Move to the next instruction (skip the loop body)
+                    )
             case InstructionKind.call:
-                assert(type(instruction.data) == int)
+                assert type(instruction.data) == int
                 self.current_task.stack.append(self.current_task.ip + 1)
                 self.current_task.ip += instruction.data
             case InstructionKind.ret:
                 self.current_task.ip = self.current_task.stack.pop()
             case InstructionKind.enter_until:
                 assert type(instruction.data) == list
-                self._until_infos.append(UntilInfo(
-                    expr=instruction.data[0],
-                    id=instruction.data[1],
-                    exit_point=self.current_task.ip + instruction.data[2],
-                    stack_size=len(self.current_task.stack)
-                ))
+                self._until_infos.append(
+                    UntilInfo(
+                        expr=instruction.data[0],
+                        id=instruction.data[1],
+                        exit_point=self.current_task.ip + instruction.data[2],
+                        stack_size=len(self.current_task.stack),
+                    )
+                )
                 self.current_task.ip += 1
             case InstructionKind.exit_until:
                 for i in range(len(self._until_infos) - 1, -1, -1):
                     info = self._until_infos[i]
                     if info.id == instruction.data:
                         self._until_infos = self._until_infos[:i]
-                        self.current_task.stack = self.current_task.stack[:info.stack_size]
+                        self.current_task.stack = self.current_task.stack[
+                            : info.stack_size
+                        ]
                         break
-                self.current_task.ip += 1 
+                self.current_task.ip += 1
 
             case InstructionKind.setdeck:
+
                 async def setdeck(client: SprintyClient, token: str):
                     logger.debug(f"Setting {client.title}'s deck...")
                     async with DeckBuilder(client) as deck_builder:
                         await deck_builder.set_deck_preset(deck)
+
                 assert type(instruction.data) == list
                 clients = self._select_players(instruction.data[0])
                 token = instruction.data[1]
@@ -1734,12 +1964,13 @@ class VM:
                 self.current_task.ip += 1
 
             case InstructionKind.getdeck:
-                async def getdeck(client:SprintyClient):
+
+                async def getdeck(client: SprintyClient):
                     async with DeckBuilder(client) as deck_builder:
                         deck = await deck_builder.get_deck_preset()
                         coder = DeckEncoderDecoder(deck=deck)
                         token = coder.encode()
-                        logger.debug(f"{client.title}: --> {token} <--");
+                        logger.debug(f"{client.title}: --> {token} <--")
 
                 assert type(instruction.data) == list
                 clients = self._select_players(instruction.data[0])
@@ -1748,9 +1979,9 @@ class VM:
                     for client in clients:
                         tg.create_task(getdeck(client))
                 self.current_task.ip += 1
- 
+
             case InstructionKind.log_single:
-                assert(isinstance(instruction.data, Expression))
+                assert isinstance(instruction.data, Expression)
 
                 if isinstance(instruction.data, IdentExpression):
                     ident = instruction.data.ident
@@ -1761,7 +1992,7 @@ class VM:
                 else:
                     value = await self.eval(instruction.data)
                     logger.debug(value)
-                
+
                 self.current_task.ip += 1
             case InstructionKind.log_multi:
                 assert type(instruction.data) == list
@@ -1780,7 +2011,7 @@ class VM:
                 self.current_task.ip += 1
 
             case InstructionKind.write_stack:
-                assert(instruction.data != None)
+                assert instruction.data != None
                 offset, expr = instruction.data
                 self.current_task.stack[offset] = await self.eval(expr)
                 self.current_task.ip += 1
@@ -1789,20 +2020,20 @@ class VM:
                 self.current_task.stack.pop()
                 self.current_task.ip += 1
             case InstructionKind.set_yaw:
-                assert(type(instruction.data)==list)
+                assert type(instruction.data) == list
                 selector = instruction.data[0]
                 yaw = instruction.data[1]
-                
+
                 if selector.any_player and self._any_player_client:
                     clients = self._any_player_client
                 elif selector.any_player:
                     clients = []
                     for client in self._clients:
-                        clients = [client] 
+                        clients = [client]
                         break
                 else:
                     clients = self._select_players(selector)
-                
+
                 if clients:
                     async with TaskGroup() as tg:
                         for client in clients:
@@ -1810,7 +2041,7 @@ class VM:
                 self.current_task.ip += 1
             case InstructionKind.load_playstyle:
                 logger.debug("Loading playstyle")
-                delegated = delegate_combat_configs(instruction.data, len(self._clients)) # type: ignore
+                delegated = delegate_combat_configs(instruction.data, len(self._clients))  # type: ignore
                 logger.debug(delegated)
                 for i, client in enumerate(self._clients):
                     client.combat_config = delegated.get(i, default_config)
@@ -1820,14 +2051,14 @@ class VM:
                 player_selector, command_name, data = instruction.data
                 deimos_call_instruction = Instruction(
                     kind=InstructionKind.deimos_call,
-                    data=[player_selector, command_name, data]
+                    data=[player_selector, command_name, data],
                 )
                 await self.exec_deimos_call(deimos_call_instruction)
                 self.current_task.ip += 1
             case InstructionKind.compound_deimos_call:
                 # instruction.data contains a list of [player_selector, command_name, command_data] entries
                 await self.exec_compound_deimos_call(instruction.data)
-                self.current_task.ip += 1  
+                self.current_task.ip += 1
             case _:
                 raise VMError(f"Unimplemented instruction: {instruction}")
         if self.current_task.ip >= len(self.program):
