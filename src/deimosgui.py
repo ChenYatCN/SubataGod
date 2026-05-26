@@ -1,6 +1,5 @@
 import ctypes
 import gettext
-import os
 import queue
 import re
 import sys
@@ -9,7 +8,6 @@ from threading import Thread
 
 import pyperclip
 import PySimpleGUI as gui
-import PySimpleGUI as sg
 from loguru import logger
 
 from src.combat_objects import school_id_to_names
@@ -93,7 +91,7 @@ class PsgSink:
 
     def write(self, message):
         # Determine log level from message
-        # text_color = "white"  # Default color
+        # text_color = 'white'  # Default color
 
         # Strip ANSI color codes
         ansi_pattern = r"\033\[\d+m"
@@ -875,7 +873,7 @@ def create_gui(
         icon="SubataGod_2.ico",
         enable_close_attempted_event=False,
     )
-    # window.TKroot.iconbitmap(default = "..\SubataGod-logo.icon")
+    # window.TKroot.iconbitmap(default = '..\SubataGod-logo.icon')
     return window
 
 
@@ -917,26 +915,7 @@ def show_ui_tree_popup(ui_tree_content):
     UITreeWindow = gui.Window(
         "UI Tree", layout, finalize=True, icon="SubataGod_2.ico", keep_on_top=True
     )
-
-    while True:
-        event, values = UITreeWindow.read()
-        if event == gui.WINDOW_CLOSED or event == "Close":
-            break
-        elif event == "-SEARCH-":
-            search_term = values["-SEARCH-"].lower()
-            filtered_list = [
-                line for line in ui_tree_list if search_term in line.lower()
-            ]
-            UITreeWindow["-TREE-"].update(filtered_list)
-        elif event == "-TREE-" and values["-TREE-"]:
-            selected_line = values["-TREE-"][0]
-            path = path_dict[selected_line]
-            UITreeWindow.close()
-            path_str = str(path)
-            pyperclip.copy(path_str)
-            return path_str
-
-    UITreeWindow.close()
+    return (UITreeWindow, ui_tree_list, path_dict)
 
 
 def show_entity_list_popup(entity_list_content):
@@ -957,27 +936,13 @@ def show_entity_list_popup(entity_list_content):
         [gui.Button("Close")],
     ]
     EntityListWindow = gui.Window(
-        "Entity List", layout, finalize=True, icon="SubataGod_2.ico", keep_on_top=True
+        "Entity List",
+        layout,
+        finalize=True,
+        icon="..\\Deimos-logo.ico",
+        keep_on_top=True,
     )
-
-    while True:
-        event, values = EntityListWindow.read()
-        print(event)
-        if event == gui.WINDOW_CLOSED or event == "Close":
-            break
-        elif event == "-SEARCH-":
-            search_term = values["-SEARCH-"].lower()
-            filtered_list = [
-                line for line in entity_list if search_term in line.lower()
-            ]
-            EntityListWindow["-TREE-"].update(filtered_list)
-        elif event == "-TREE-" and values["-TREE-"]:
-            selected_line = values["-TREE-"][0]
-            EntityListWindow.close()
-            pyperclip.copy(selected_line)
-            return selected_line
-
-    EntityListWindow.close()
+    return (EntityListWindow, entity_list)
 
 
 def manage_gui(
@@ -1004,6 +969,11 @@ def manage_gui(
     global console_psg
     console_psg = PsgSink(window, "-CONSOLE-")
     console_sink = logger.add(console_psg, colorize=True)
+    EntityListWindow = None
+    entity_list = []
+    UITreeWindow = None
+    ui_tree_list = []
+    path_dict = {}
 
     running = True
 
@@ -1310,8 +1280,49 @@ def manage_gui(
 
         import_check("combat_file_path", "combat_config")
         export_check("combat_save_path", "combat_config")
+        if EntityListWindow:
+            event, values = EntityListWindow.read(timeout=10)
+            if event == gui.WINDOW_CLOSED or event == "Close":
+                EntityListWindow.close()
+                EntityListWindow = None
+                entity_list = []
+            elif event == "-SEARCH-":
+                search_term = values["-SEARCH-"].lower()
+                filtered_list = [
+                    line for line in entity_list if search_term in line.lower()
+                ]
+                EntityListWindow["-TREE-"].update(filtered_list)
+            elif event == "-TREE-" and values["-TREE-"]:
+                selected_line = values["-TREE-"][0]
+                EntityListWindow.close()
+                EntityListWindow = None
+                entity_list = []
+                pyperclip.copy(selected_line)
+
+        if UITreeWindow:
+            event, values = UITreeWindow.read(timeout=10)
+            if event == gui.WINDOW_CLOSED or event == "Close":
+                UITreeWindow.close()
+                UITreeWindow = None
+                ui_tree_list = []
+                path_dict = {}
+            elif event == "-SEARCH-":
+                search_term = values["-SEARCH-"].lower()
+                filtered_list = [
+                    line for line in ui_tree_list if search_term in line.lower()
+                ]
+                UITreeWindow["-TREE-"].update(filtered_list)
+            elif event == "-TREE-" and values["-TREE-"]:
+                selected_line = values["-TREE-"][0]
+                path = path_dict[selected_line]
+                UITreeWindow.close()
+                UITreeWindow = None
+                ui_tree_list = []
+                path_dict = {}
+                path_str = str(path)
+                pyperclip.copy(path_str)
 
     # gui.WIN_CLOSED
     window.close()
-    # print("AHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH")
+    # print('AHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH')
     # raise GUIClosedException

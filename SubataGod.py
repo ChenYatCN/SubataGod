@@ -17,25 +17,13 @@ from typing import List
 import pyperclip
 import PySimpleGUI as gui
 import requests
-import wizwalker
 from loguru import logger
 
 # import pypresence
 from pypresence import AioPresence
-from wizwalker import XYZ, HotkeyListener, Keycode, ModifierKeys, Orient, utils
-from wizwalker.client_handler import Client, ClientHandler
-from wizwalker.extensions.scripting import teleport_to_friend_from_list
-from wizwalker.extensions.wizsprinter.sprinty_combat import SprintyCombat
-from wizwalker.extensions.wizsprinter.wiz_navigator import toZone, toZoneDisplayName
-from wizwalker.memory.memory_objects.camera_controller import (
-    DynamicCameraController,
-    ElasticCameraController,
-)
-from wizwalker.memory.memory_objects.window import Window
-from wizwalker.utils import get_all_wizard_handles, get_foreground_window
 
+import wizwalker
 from src import deimosgui, discsdk
-from src.auto_fish import fish_bot
 from src.auto_pet import nomnom
 from src.command_parser import execute_flythrough, parse_command
 from src.config_combat import (
@@ -68,6 +56,17 @@ from src.utils import (
     to_world,
     try_task_coro,
 )
+from wizwalker import XYZ, HotkeyListener, Keycode, ModifierKeys, Orient, utils
+from wizwalker.client_handler import Client, ClientHandler
+from wizwalker.extensions.scripting import teleport_to_friend_from_list
+from wizwalker.extensions.wizsprinter.sprinty_combat import SprintyCombat
+from wizwalker.extensions.wizsprinter.wiz_navigator import toZone, toZoneDisplayName
+from wizwalker.memory.memory_objects.camera_controller import (
+    DynamicCameraController,
+    ElasticCameraController,
+)
+from wizwalker.memory.memory_objects.window import Window
+from wizwalker.utils import get_all_wizard_handles, get_foreground_window
 
 gui.set_global_icon("SubataGod_2.ico")
 gui.PySimpleGUI.SUPPRESS_ERROR_POPUPS = True
@@ -75,7 +74,7 @@ gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
 
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
-tool_version: str = "2.0.0"
+tool_version: str = "2.0.2"
 tool_name: str = "SubataGod"
 tool_author: str = "炙逸"
 repo_name: str = tool_name + "-Wizard101"
@@ -1731,10 +1730,13 @@ async def main():
         gui_thread.daemon = True
         gui_thread.start()
         enemy_stats = []
+        current_pos = None
+        current_rotation = None
         while True:
             if walker.clients and foreground_client:
                 current_zone = await foreground_client.zone_name()
-                try:
+                # try:
+                if current_zone and not await foreground_client.is_loading():
                     if await foreground_client.game_client.is_freecam():
                         camera = (
                             await foreground_client.game_client.free_camera_controller()
@@ -1769,9 +1771,12 @@ async def main():
                                     current_rotation.pitch, 3
                                 )
                                 current_rotation.roll = trunc(current_rotation.roll, 3)
+                else:
+                    current_pos: XYZ = XYZ(0, 0, 0)
+                    current_rotation: Orient = Orient(0, 0, 0)
 
-                except wizwalker.errors.MemoryReadError as e:
-                    await handle_coord_error(e)
+                # except wizwalker.errors.MemoryReadError as e:
+                # 	await handle_coord_error(e)
 
                 gui_send_queue.put(
                     deimosgui.GUICommand(
